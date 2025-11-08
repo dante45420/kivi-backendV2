@@ -140,7 +140,9 @@ def init_dev_data():
     print("✅ Datos de desarrollo inicializados (4 categorías, 5 productos, 4 tips)")
 
 
+# Crear instancia de la app para gunicorn
+app = create_app()
+
 if __name__ == "__main__":
-    app = create_app()
     app.run(debug=True, host="0.0.0.0", port=5000)
 
