@@ -87,7 +87,9 @@ def create_app():
     
     @app.route("/uploads/<path:filename>")
     def serve_upload(filename):
-        uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads')
+        # Obtener la ruta base del proyecto (donde está wsgi.py)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        uploads_dir = os.path.join(base_dir, 'uploads')
         return send_from_directory(uploads_dir, filename)
     
     return app
