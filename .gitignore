@@ -41,6 +41,8 @@ instance/
 # GCP
 *.json
 !*.example.json
+!railway.json
+!package.json
 
 # Logs
 *.log
