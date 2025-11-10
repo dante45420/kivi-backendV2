@@ -16,8 +16,8 @@ class Order(db.Model):
     source = db.Column(db.String(20), nullable=False, default="manual")
     # manual | whatsapp | web
     
-    shipping_type = db.Column(db.String(20), nullable=False, default="fast")
-    # fast (más rápido) | cheap (más barato)
+    shipping_type = db.Column(db.String(20), nullable=False, default="normal")
+    # fast (rápido, mismo día antes de 12:00, +10%) | normal (día siguiente, +0%) | cheap (económico, 1-3 días, -10%)
     
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)

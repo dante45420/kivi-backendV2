@@ -42,17 +42,17 @@ def create_weekly_offer():
         start_date_str = data["start_date"].replace('Z', '+00:00') if 'Z' in data["start_date"] else data["start_date"]
         end_date_str = data["end_date"].replace('Z', '+00:00') if 'Z' in data["end_date"] else data["end_date"]
         
-        offer = WeeklyOffer(
-            product_id=data["product_id"],
-            special_price=round(data["special_price"]),
+    offer = WeeklyOffer(
+        product_id=data["product_id"],
+        special_price=round(data["special_price"]),
             start_date=datetime.fromisoformat(start_date_str),
             end_date=datetime.fromisoformat(end_date_str),
-        )
-        
-        db.session.add(offer)
-        db.session.commit()
-        
-        return jsonify(offer.to_dict()), 201
+    )
+    
+    db.session.add(offer)
+    db.session.commit()
+    
+    return jsonify(offer.to_dict()), 201
     except Exception as e:
         db.session.rollback()
         print(f"Error creating weekly offer: {e}")

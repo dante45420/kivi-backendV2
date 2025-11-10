@@ -143,7 +143,7 @@ def create_order():
     order = Order(
         status="draft",
         source=data.get("source", "manual"),
-        shipping_type=data.get("shipping_type", "fast"),
+        shipping_type=data.get("shipping_type", "normal"),
         notes=data.get("notes"),
     )
     
