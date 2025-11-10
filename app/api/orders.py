@@ -241,52 +241,159 @@ def complete_order(id):
     return jsonify(order.to_dict())
 
 
+@bp.route("/<int:id>", methods=["PUT"])
+def update_order(id):
+    """Actualiza un pedido (solo shipping_type y notes)"""
+    try:
+        order = Order.query.get_or_404(id)
+        
+        # Validar que el pedido no esté completado
+        if order.status == "completed":
+            return jsonify({
+                "error": "No se puede modificar un pedido completado"
+            }), 400
+        
+        data = request.json or {}
+        
+        # Permitir actualizar shipping_type incluso si está emitido (para correcciones)
+        if "shipping_type" in data:
+            shipping_type = data["shipping_type"]
+            if shipping_type in ["fast", "normal", "cheap"]:
+                order.shipping_type = shipping_type
+            else:
+                return jsonify({"error": "shipping_type debe ser 'fast', 'normal' o 'cheap'"}), 400
+        
+        if "notes" in data:
+            order.notes = data["notes"]
+        
+        db.session.commit()
+        
+        return jsonify(order.to_dict())
+    
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error actualizando pedido: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al actualizar pedido: {str(e)}"}), 500
+
+
 @bp.route("/<int:id>/items", methods=["POST"])
 def add_order_item(id):
     """Agrega un item a un pedido existente"""
-    order = Order.query.get_or_404(id)
-    data = request.json
+    try:
+        order = Order.query.get_or_404(id)
+        
+        # Validar que el pedido no esté completado
+        if order.status == "completed":
+            return jsonify({
+                "error": "No se pueden agregar items a un pedido completado"
+            }), 400
+        
+        data = request.json
+        
+        # Validar campos requeridos
+        if not data:
+            return jsonify({"error": "No se enviaron datos"}), 400
+        
+        if "customer_id" not in data:
+            return jsonify({"error": "customer_id es requerido"}), 400
+        
+        if "product_id" not in data:
+            return jsonify({"error": "product_id es requerido"}), 400
+        
+        if "qty" not in data:
+            return jsonify({"error": "qty es requerido"}), 400
+        
+        # Validar que el producto existe
+        product = Product.query.get(data["product_id"])
+        if not product:
+            return jsonify({"error": f"Producto con id {data['product_id']} no encontrado"}), 404
+        
+        # Validar que el cliente existe
+        customer = Customer.query.get(data["customer_id"])
+        if not customer:
+            return jsonify({"error": f"Cliente con id {data['customer_id']} no encontrado"}), 404
+        
+        item = OrderItem(
+            order_id=order.id,
+            customer_id=data["customer_id"],
+            product_id=data["product_id"],
+            qty=data["qty"],
+            unit=data.get("unit", "kg"),
+            unit_price=data.get("unit_price"),
+            notes=data.get("notes"),
+        )
+        
+        db.session.add(item)
+        db.session.commit()
+        
+        return jsonify(item.to_dict()), 201
     
-    item = OrderItem(
-        order_id=order.id,
-        customer_id=data["customer_id"],
-        product_id=data["product_id"],
-        qty=data["qty"],
-        unit=data.get("unit", "kg"),
-        unit_price=data.get("unit_price"),
-        notes=data.get("notes"),
-    )
-    
-    db.session.add(item)
-    db.session.commit()
-    
-    return jsonify(item.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error agregando item a pedido: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al agregar item: {str(e)}"}), 500
 
 
 @bp.route("/items/<int:item_id>", methods=["PUT"])
 def update_order_item(item_id):
     """Actualiza un item de pedido"""
-    item = OrderItem.query.get_or_404(item_id)
-    data = request.json
+    try:
+        item = OrderItem.query.get_or_404(item_id)
+        
+        # Validar que el pedido no esté completado
+        if item.order.status == "completed":
+            return jsonify({
+                "error": "No se pueden modificar items de un pedido completado"
+            }), 400
+        
+        data = request.json or {}
+        
+        if "qty" in data:
+            item.qty = data["qty"]
+        if "unit_price" in data:
+            item.unit_price = data["unit_price"]
+        if "notes" in data:
+            item.notes = data["notes"]
+        
+        db.session.commit()
+        
+        return jsonify(item.to_dict())
     
-    item.qty = data.get("qty", item.qty)
-    item.unit_price = data.get("unit_price", item.unit_price)
-    item.notes = data.get("notes", item.notes)
-    
-    db.session.commit()
-    
-    return jsonify(item.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error actualizando item: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al actualizar item: {str(e)}"}), 500
 
 
 @bp.route("/items/<int:item_id>", methods=["DELETE"])
 def delete_order_item(item_id):
     """Elimina un item de pedido"""
-    item = OrderItem.query.get_or_404(item_id)
+    try:
+        item = OrderItem.query.get_or_404(item_id)
+        
+        # Validar que el pedido no esté completado
+        if item.order.status == "completed":
+            return jsonify({
+                "error": "No se pueden eliminar items de un pedido completado"
+            }), 400
+        
+        db.session.delete(item)
+        db.session.commit()
+        
+        return jsonify({"message": "Item eliminado"})
     
-    db.session.delete(item)
-    db.session.commit()
-    
-    return jsonify({"message": "Item eliminado"})
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error eliminando item: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al eliminar item: {str(e)}"}), 500
 
 
 @bp.route("/<int:id>/expenses", methods=["POST"])
