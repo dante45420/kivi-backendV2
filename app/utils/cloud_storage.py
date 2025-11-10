@@ -5,6 +5,7 @@ Upload, delete y obtención de URLs
 import os
 import json
 import tempfile
+from datetime import datetime, timedelta
 from google.cloud import storage
 from werkzeug.utils import secure_filename
 import uuid
@@ -116,10 +117,26 @@ def upload_file(file, folder="general"):
         blob = bucket.blob(unique_filename)
         blob.upload_from_file(file, content_type=file.content_type)
         
-        # Hacer público
-        blob.make_public()
+        # Generar URL firmada (signed URL) que funciona sin hacer el bucket público
+        # Esto es necesario cuando "Public Access Prevention" está habilitada
+        # La URL expira en 10 años (3650 días) - prácticamente permanente
+        expiration = datetime.utcnow() + timedelta(days=3650)
         
-        return blob.public_url
+        # Obtener las credenciales del cliente para firmar la URL
+        try:
+            # Generar URL firmada
+            signed_url = blob.generate_signed_url(
+                expiration=expiration,
+                method='GET',
+                version='v4'
+            )
+            print(f"✅ Archivo subido y URL firmada generada: {unique_filename}")
+            return signed_url
+        except Exception as e:
+            print(f"⚠️ Error generando URL firmada: {e}")
+            # Fallback: intentar URL pública directa (solo funcionará si el bucket es público)
+            public_url = f"https://storage.googleapis.com/{bucket_name}/{unique_filename}"
+            return public_url
     
     except Exception as e:
         print(f"❌ Error al subir archivo: {e}")

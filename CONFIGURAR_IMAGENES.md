@@ -61,9 +61,39 @@ Para este caso, usamos **Storage Admin** porque necesitamos que Railway pueda gu
    - **Location type**: `Region`
    - **Location**: **`us-central1`** (IMPORTANTE: usa esta región para el plan gratuito)
    - **Storage class**: `Standard`
-   - **Access control**: `Uniform` (recomendado)
+   - **Access control**: `Uniform` (recomendado) ⚠️ **IMPORTANTE: Debe ser Uniform**
    - **Protection**: Deja todo desmarcado
 4. Click **"CREATE"**
+
+#### 2.1: Deshabilitar Public Access Prevention (IMPORTANTE - PRIMERO)
+
+**⚠️ Si no haces esto, NO podrás hacer el bucket público**
+
+Google Cloud tiene una protección que previene el acceso público por defecto. Necesitas deshabilitarla primero:
+
+1. Después de crear el bucket, haz click en su **nombre** para abrirlo
+2. Ve a la pestaña **"Configuration"** (Configuración) o **"Settings"** (Configuración)
+3. Busca la sección **"Public access prevention"** (Prevención de acceso público)
+4. Deberías ver que está en **"Enforced"** (Aplicada)
+5. Click en **"EDIT"** (Editar) al lado de "Public access prevention"
+6. Cambia de **"Enforced"** a **"Inherited"** o **"Unspecified"**
+7. Click en **"SAVE"**
+8. Confirma el cambio cuando aparezca la advertencia
+
+**✅ Ahora puedes hacer el bucket público**
+
+#### 2.2: Hacer el Bucket Público (IMPORTANTE - DESPUÉS)
+
+**⚠️ Si no haces esto, las imágenes no se podrán ver públicamente**
+
+1. En el bucket, ve a la pestaña **"Permissions"** (Permisos)
+2. Click en **"GRANT ACCESS"** (Conceder acceso)
+3. En **"New principals"**, escribe: `allUsers`
+4. En **"Select a role"**, busca y selecciona: **"Storage Object Viewer"** (Visor de objetos de Storage)
+5. Click en **"SAVE"**
+6. Te aparecerá una advertencia sobre hacer el bucket público - click en **"ALLOW PUBLIC ACCESS"**
+
+**✅ Listo! Ahora el bucket es público y las imágenes se podrán ver desde cualquier URL**
 
 ### Paso 3: Crear Service Account (5 min) - ⚠️ IMPORTANTE: Lee esto completo
 
