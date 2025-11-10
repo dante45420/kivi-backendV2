@@ -117,30 +117,66 @@ def upload_file(file, folder="general"):
         blob = bucket.blob(unique_filename)
         blob.upload_from_file(file, content_type=file.content_type)
         
-        # Generar URL firmada (signed URL) que funciona sin hacer el bucket público
-        # Esto es necesario cuando "Public Access Prevention" está habilitada
-        # La URL expira en 10 años (3650 días) - prácticamente permanente
-        expiration = datetime.utcnow() + timedelta(days=3650)
-        
-        # Obtener las credenciales del cliente para firmar la URL
-        try:
-            # Generar URL firmada
-            signed_url = blob.generate_signed_url(
-                expiration=expiration,
-                method='GET',
-                version='v4'
-            )
-            print(f"✅ Archivo subido y URL firmada generada: {unique_filename}")
-            return signed_url
-        except Exception as e:
-            print(f"⚠️ Error generando URL firmada: {e}")
-            # Fallback: intentar URL pública directa (solo funcionará si el bucket es público)
-            public_url = f"https://storage.googleapis.com/{bucket_name}/{unique_filename}"
-            return public_url
+        # Retornar URL relativa que apunta al endpoint del backend
+        # El endpoint /api/images/<path> servirá la imagen desde Cloud Storage
+        # Esto evita problemas con URLs firmadas que expiran en 7 días
+        # Formato: /api/images/products/17/filename.png
+        image_url = f"/api/images/{unique_filename}"
+        print(f"✅ Archivo subido a Cloud Storage: {unique_filename}")
+        print(f"   URL: {image_url}")
+        return image_url
     
     except Exception as e:
         print(f"❌ Error al subir archivo: {e}")
         return None
+
+
+def get_file_content(gcs_path):
+    """
+    Obtiene el contenido de un archivo de Cloud Storage
+    
+    Args:
+        gcs_path: Path del archivo en formato gs://bucket-name/path o path/to/file
+        
+    Returns:
+        tuple: (content, content_type) o (None, None) si falla
+    """
+    client = get_storage_client()
+    
+    if not client:
+        return None, None
+    
+    bucket_name = os.getenv("GCS_BUCKET_NAME")
+    
+    if not bucket_name:
+        return None, None
+    
+    try:
+        # Extraer el path del blob
+        if gcs_path.startswith('gs://'):
+            # Formato: gs://bucket-name/path/to/file
+            blob_path = gcs_path.split(f'{bucket_name}/', 1)[1] if f'{bucket_name}/' in gcs_path else gcs_path.split('/', 2)[2]
+        elif 'storage.googleapis.com' in gcs_path:
+            # Formato: https://storage.googleapis.com/bucket-name/path/to/file
+            blob_path = gcs_path.split(f'{bucket_name}/', 1)[1]
+        else:
+            # Asumir que es solo el path
+            blob_path = gcs_path
+        
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        
+        if not blob.exists():
+            return None, None
+        
+        content = blob.download_as_bytes()
+        content_type = blob.content_type or 'application/octet-stream'
+        
+        return content, content_type
+    
+    except Exception as e:
+        print(f"❌ Error obteniendo archivo: {e}")
+        return None, None
 
 
 def delete_file(file_url):
@@ -148,7 +184,7 @@ def delete_file(file_url):
     Elimina un archivo de Cloud Storage
     
     Args:
-        file_url: URL pública del archivo
+        file_url: URL o path del archivo (gs://bucket/path o https://storage.googleapis.com/...)
         
     Returns:
         bool: True si se eliminó, False si falló
@@ -164,16 +200,22 @@ def delete_file(file_url):
         return False
     
     try:
-        # Extraer el path del blob desde la URL
-        # Formato: https://storage.googleapis.com/bucket-name/path/to/file.jpg
-        if bucket_name in file_url:
-            blob_path = file_url.split(f"{bucket_name}/")[1]
-            
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_path)
-            blob.delete()
-            
-            return True
+        # Extraer el path del blob
+        if file_url.startswith('gs://'):
+            # Formato: gs://bucket-name/path/to/file
+            blob_path = file_url.split(f'{bucket_name}/', 1)[1] if f'{bucket_name}/' in file_url else file_url.split('/', 2)[2]
+        elif 'storage.googleapis.com' in file_url:
+            # Formato: https://storage.googleapis.com/bucket-name/path/to/file
+            blob_path = file_url.split(f'{bucket_name}/', 1)[1]
+        else:
+            # Asumir que es solo el path
+            blob_path = file_url
+        
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_path)
+        blob.delete()
+        
+        return True
     
     except Exception as e:
         print(f"❌ Error al eliminar archivo: {e}")

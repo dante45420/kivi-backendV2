@@ -63,7 +63,7 @@ def create_app():
         from app.api import (
             categories_bp, products_bp, customers_bp,
             orders_bp, payments_bp, purchases_bp, kivi_bp, content_bp,
-            weekly_offers_bp, auth_bp
+            weekly_offers_bp, auth_bp, images_bp
         )
         
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -76,6 +76,7 @@ def create_app():
         app.register_blueprint(kivi_bp, url_prefix="/api/kivi")
         app.register_blueprint(content_bp, url_prefix="/api/content")
         app.register_blueprint(weekly_offers_bp, url_prefix="/api/weekly-offers")
+        app.register_blueprint(images_bp, url_prefix="/api/images")
     
     # Ruta de health check
     @app.route("/health")

@@ -152,7 +152,12 @@ def upload_photo(id):
         # Eliminar foto anterior si existe
         if product.photo_url:
             try:
-                if 'storage.googleapis.com' in product.photo_url:
+                if product.photo_url.startswith('/api/images/'):
+                    # Nueva URL relativa: extraer el path
+                    image_path = product.photo_url.replace('/api/images/', '')
+                    delete_file(image_path)
+                elif 'storage.googleapis.com' in product.photo_url or product.photo_url.startswith('gs://'):
+                    # URL antigua de Cloud Storage
                     delete_file(product.photo_url)
                 elif product.photo_url.startswith('/uploads/'):
                     # Eliminar archivo local
@@ -213,7 +218,12 @@ def delete_photo(id):
         from ..utils.cloud_storage import delete_file
         import os
         
-        if 'storage.googleapis.com' in product.photo_url:
+        if product.photo_url.startswith('/api/images/'):
+            # Nueva URL relativa: extraer el path
+            image_path = product.photo_url.replace('/api/images/', '')
+            delete_file(image_path)
+        elif 'storage.googleapis.com' in product.photo_url or product.photo_url.startswith('gs://'):
+            # URL antigua de Cloud Storage
             delete_file(product.photo_url)
         elif product.photo_url.startswith('/uploads/'):
             # Eliminar archivo local

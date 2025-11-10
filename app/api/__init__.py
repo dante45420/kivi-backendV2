@@ -11,6 +11,7 @@ from .purchases import bp as purchases_bp
 from .kivi import bp as kivi_bp
 from .content import bp as content_bp
 from .weekly_offers import bp as weekly_offers_bp
+from .images import bp as images_bp
 
 __all__ = [
     "auth_bp",
@@ -23,5 +24,6 @@ __all__ = [
     "kivi_bp",
     "content_bp",
     "weekly_offers_bp",
+    "images_bp",
 ]
 
