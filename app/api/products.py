@@ -162,15 +162,22 @@ def upload_photo(id):
             except Exception as e:
                 print(f"Error deleting old photo: {e}")
         
-        # Intentar Google Cloud Storage primero
-        if os.getenv("GCS_BUCKET_NAME"):
+        # Intentar Google Cloud Storage primero (RECOMENDADO para producción)
+        bucket_name = os.getenv("GCS_BUCKET_NAME")
+        if bucket_name:
             photo_url = upload_file(file, folder=f"products/{product.id}")
             if photo_url:
                 product.photo_url = photo_url
                 db.session.commit()
+                print(f"✅ Imagen subida a Cloud Storage: {photo_url}")
                 return jsonify({"photo_url": photo_url})
+            else:
+                print("⚠️ Cloud Storage configurado pero falló la subida. Usando almacenamiento local (se perderá en redeploy)")
+        else:
+            print("⚠️ GCS_BUCKET_NAME no configurado. Usando almacenamiento local (se perderá en redeploy)")
+            print("   Para persistencia, configura Google Cloud Storage. Ver: v2-backend/CONFIGURAR_IMAGENES.md")
         
-        # Fallback: Guardar localmente
+        # Fallback: Guardar localmente (TEMPORAL - se pierde en redeploy)
         upload_folder = os.path.join(os.path.dirname(__file__), '../../uploads/products')
         os.makedirs(upload_folder, exist_ok=True)
         
@@ -184,7 +191,10 @@ def upload_photo(id):
         product.photo_url = photo_url
         db.session.commit()
         
-        return jsonify({"photo_url": photo_url})
+        return jsonify({
+            "photo_url": photo_url,
+            "warning": "Imagen guardada localmente. Se perderá en redeploy. Configura Cloud Storage para persistencia."
+        })
         
     except Exception as e:
         print(f"Error uploading photo: {e}")

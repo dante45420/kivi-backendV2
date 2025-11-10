@@ -3,6 +3,8 @@ Utilidad: Manejo de Google Cloud Storage
 Upload, delete y obtención de URLs
 """
 import os
+import json
+import tempfile
 from google.cloud import storage
 from werkzeug.utils import secure_filename
 import uuid
@@ -11,9 +13,52 @@ import uuid
 def get_storage_client():
     """Obtiene el cliente de Cloud Storage"""
     try:
-        return storage.Client()
+        # Railway puede pasar las credenciales como JSON string en variable de entorno
+        creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        
+        if not creds_json:
+            print("⚠️ GOOGLE_APPLICATION_CREDENTIALS no está configurado")
+            return None
+        
+        # Si es un JSON string (Railway), usar directamente
+        if creds_json.strip().startswith('{'):
+            try:
+                # Parsear el JSON
+                creds_data = json.loads(creds_json)
+                
+                # Usar from_service_account_info para crear el cliente directamente desde el dict
+                client = storage.Client.from_service_account_info(creds_data)
+                print("✅ Cloud Storage inicializado desde JSON string")
+                return client
+            except json.JSONDecodeError as e:
+                print(f"⚠️ GOOGLE_APPLICATION_CREDENTIALS no es un JSON válido: {e}")
+                return None
+            except Exception as e:
+                print(f"⚠️ Error creando cliente desde JSON: {e}")
+                import traceback
+                traceback.print_exc()
+                return None
+        
+        # Si es una ruta de archivo (desarrollo local)
+        elif os.path.exists(creds_json):
+            try:
+                client = storage.Client.from_service_account_json(creds_json)
+                print("✅ Cloud Storage inicializado desde archivo")
+                return client
+            except Exception as e:
+                print(f"⚠️ Error leyendo archivo de credenciales: {e}")
+                return None
+        
+        # Si no es ni JSON ni archivo válido
+        else:
+            print(f"⚠️ GOOGLE_APPLICATION_CREDENTIALS no es válido (ni JSON ni archivo existente)")
+            print(f"   Valor recibido: {creds_json[:50]}...")
+            return None
+        
     except Exception as e:
         print(f"⚠️ Error al inicializar Cloud Storage: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
