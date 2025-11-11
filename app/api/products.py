@@ -78,6 +78,7 @@ def create_product():
         unit=data.get("unit", "kg"),
         sale_price=data.get("sale_price"),
         purchase_price=data.get("purchase_price"),
+        avg_units_per_kg=data.get("avg_units_per_kg"),
         notes=data.get("notes"),
     )
     
@@ -112,6 +113,7 @@ def update_product(id):
     product.unit = data.get("unit", product.unit)
     product.sale_price = data.get("sale_price", product.sale_price)
     product.purchase_price = new_purchase_price or product.purchase_price
+    product.avg_units_per_kg = data.get("avg_units_per_kg") if "avg_units_per_kg" in data else product.avg_units_per_kg
     product.notes = data.get("notes", product.notes)
     product.active = data.get("active", product.active)
     
