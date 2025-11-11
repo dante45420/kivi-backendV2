@@ -284,7 +284,8 @@ def add_order_item(id):
     try:
         order = Order.query.get_or_404(id)
         
-        # Validar que el pedido no esté completado
+        # Permitir agregar items a pedidos finalized (para remates después de compra)
+        # Solo bloquear si está completed
         if order.status == "completed":
             return jsonify({
                 "error": "No se pueden agregar items a un pedido completado"
