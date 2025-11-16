@@ -40,6 +40,11 @@ steps:
 images:
   - 'gcr.io/$PROJECT_ID/kivi-backend:$COMMIT_SHA'
 
+# Configuración de logs (requerido cuando se usa service account)
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
 # Substitution variables (configurar en Cloud Build triggers)
 # Estos valores son solo ejemplos - los valores reales se configuran en el trigger
 substitutions:
