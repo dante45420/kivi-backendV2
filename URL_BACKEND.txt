@@ -1,0 +1,13 @@
+🌐 URL DEL BACKEND EN GOOGLE CLOUD
+
+URL Principal:
+https://kivi-backend-nn6ybvu7tq-uc.a.run.app
+
+Endpoints para probar:
+- Health: https://kivi-backend-nn6ybvu7tq-uc.a.run.app/health
+- Productos: https://kivi-backend-nn6ybvu7tq-uc.a.run.app/api/products
+- Categorías: https://kivi-backend-nn6ybvu7tq-uc.a.run.app/api/categories
+- Clientes: https://kivi-backend-nn6ybvu7tq-uc.a.run.app/api/customers
+- Pedidos: https://kivi-backend-nn6ybvu7tq-uc.a.run.app/api/orders
+
+Para actualizar el frontend, cambia VITE_API_URL a esta URL.

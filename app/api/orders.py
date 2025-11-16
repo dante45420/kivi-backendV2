@@ -185,13 +185,33 @@ def create_order():
                     db.session.add(item_customer)
                     db.session.flush()
             
+            # Aplicar oferta semanal si existe y no se especificó unit_price
+            unit_price = item_data.get("sale_unit_price") or item_data.get("unit_price")
+            if not unit_price:
+                from ..models import WeeklyOffer
+                # Buscar oferta activa para este producto en la fecha del pedido
+                order_date = order.created_at or datetime.utcnow()
+                active_offer = WeeklyOffer.query.filter(
+                    WeeklyOffer.product_id == product_id,
+                    WeeklyOffer.start_date <= order_date,
+                    WeeklyOffer.end_date >= order_date,
+                    WeeklyOffer.active == True
+                ).first()
+                
+                if active_offer:
+                    unit_price = active_offer.special_price
+                else:
+                    # Si no hay oferta, usar precio de venta del producto
+                    product = Product.query.get(product_id)
+                    unit_price = product.sale_price if product else 0
+            
             item = OrderItem(
                 order_id=order.id,
                 customer_id=item_customer.id if item_customer else None,
                 product_id=product_id,
                 qty=item_data["qty"],
                 unit=item_data.get("unit", "kg"),
-                unit_price=item_data.get("sale_unit_price", 0),
+                unit_price=unit_price,
                 notes=item_data.get("notes"),
             )
             db.session.add(item)
@@ -316,13 +336,32 @@ def add_order_item(id):
         if not customer:
             return jsonify({"error": f"Cliente con id {data['customer_id']} no encontrado"}), 404
         
+        # Aplicar oferta semanal si no se especificó unit_price
+        unit_price = data.get("unit_price")
+        if not unit_price:
+            from ..models import WeeklyOffer
+            # Buscar oferta activa para este producto
+            order_date = order.created_at or datetime.utcnow()
+            active_offer = WeeklyOffer.query.filter(
+                WeeklyOffer.product_id == data["product_id"],
+                WeeklyOffer.start_date <= order_date,
+                WeeklyOffer.end_date >= order_date,
+                WeeklyOffer.active == True
+            ).first()
+            
+            if active_offer:
+                unit_price = active_offer.special_price
+            else:
+                # Si no hay oferta, usar precio de venta del producto
+                unit_price = product.sale_price if product else 0
+        
         item = OrderItem(
             order_id=order.id,
             customer_id=data["customer_id"],
             product_id=data["product_id"],
             qty=data["qty"],
             unit=data.get("unit", "kg"),
-            unit_price=data.get("unit_price"),
+            unit_price=unit_price,
             notes=data.get("notes"),
         )
         
@@ -357,6 +396,22 @@ def update_order_item(item_id):
             item.qty = data["qty"]
         if "unit_price" in data:
             item.unit_price = data["unit_price"]
+        elif "unit_price" not in data and item.product:
+            # Si no se especificó unit_price, verificar si hay oferta activa
+            from ..models import WeeklyOffer
+            order_date = item.order.created_at or datetime.utcnow()
+            active_offer = WeeklyOffer.query.filter(
+                WeeklyOffer.product_id == item.product_id,
+                WeeklyOffer.start_date <= order_date,
+                WeeklyOffer.end_date >= order_date,
+                WeeklyOffer.active == True
+            ).first()
+            
+            if active_offer:
+                item.unit_price = active_offer.special_price
+            elif not item.unit_price:
+                # Si no hay oferta y no hay unit_price, usar precio del producto
+                item.unit_price = item.product.sale_price if item.product else None
         if "notes" in data:
             item.notes = data["notes"]
         

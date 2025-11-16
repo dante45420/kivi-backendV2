@@ -22,9 +22,32 @@ steps:
       - '--platform'
       - 'managed'
       - '--allow-unauthenticated'
+      - '--add-cloudsql-instances'
+      - '${_CLOUD_SQL_INSTANCE}'
       - '--set-env-vars'
-      - 'FLASK_ENV=production'
+      - 'FLASK_ENV=production,DATABASE_URL=${_DATABASE_URL},GCS_BUCKET_NAME=${_GCS_BUCKET_NAME},SECRET_KEY=${_SECRET_KEY},ADMIN_EMAIL=${_ADMIN_EMAIL},ADMIN_PASSWORD=${_ADMIN_PASSWORD},ALLOWED_ORIGINS=${_ALLOWED_ORIGINS}'
+      - '--set-secrets'
+      - 'GOOGLE_APPLICATION_CREDENTIALS=${_GCS_SECRET_NAME}:latest'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--timeout'
+      - '300'
+      - '--max-instances'
+      - '10'
 
 images:
   - 'gcr.io/$PROJECT_ID/kivi-backend:$COMMIT_SHA'
+
+# Substitution variables (configurar en Cloud Build triggers)
+substitutions:
+  _CLOUD_SQL_INSTANCE: 'kivi-project:us-central1:kivi-db'
+  _DATABASE_URL: 'postgresql://kivi_user:PASSWORD@/kivi_v2?host=/cloudsql/kivi-project:us-central1:kivi-db'
+  _GCS_BUCKET_NAME: 'kivi-v2-media'
+  _SECRET_KEY: 'change-me-in-production'
+  _ADMIN_EMAIL: 'admin@kivi.cl'
+  _ADMIN_PASSWORD: 'change-me-in-production'
+  _ALLOWED_ORIGINS: 'https://kivi-frontend-xxxxx.run.app'
+  _GCS_SECRET_NAME: 'gcs-credentials'
 

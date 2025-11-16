@@ -4,60 +4,52 @@ __pycache__/
 *$py.class
 *.so
 .Python
-env/
 venv/
+env/
 ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Environment
-.env
 .venv
+
+# Flask
+instance/
+.webassets-cache
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Backups
+backups/
+*.sql
+*.sql.gz
+
+# Google Cloud credentials
+gcs-credentials.json
+*-credentials.json
+*.json
+!package.json
+!package-lock.json
+
+# Logs
+*.log
+logs/
+
+# Uploads (local)
+uploads/
+!uploads/.gitkeep
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# Database
-*.db
-*.sqlite
-instance/
-
-# GCP
-*.json
-!*.example.json
-!railway.json
-!package.json
-
-# Logs
-*.log
+*~
 
 # OS
 .DS_Store
 Thumbs.db
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Images/Media (local)
-uploads/
-media/
-generated_images/
-

@@ -43,8 +43,8 @@ class OrderItem(db.Model):
         qty_to_charge = self.charged_qty if self.charged_qty is not None else self.qty
         unit_to_charge = self.charged_unit if self.charged_unit else self.unit
         
-        # Calcular monto pagado real (suma de todas las asignaciones)
-        paid_amount = sum(a.amount for a in self.payment_allocations)
+        # En el nuevo sistema simplificado, paid_amount ya no se calcula aquí
+        # Se calcula a nivel de cliente (total de pagos vs total de pedidos)
         
         return {
             "id": self.id,
@@ -60,8 +60,7 @@ class OrderItem(db.Model):
             "charged_qty": self.charged_qty,
             "charged_unit": self.charged_unit,
             "unit_price": self.unit_price or effective_price,
-            "paid": self.paid,
-            "paid_amount": paid_amount,  # Monto pagado real
+            "paid": self.paid,  # Deprecated, pero se mantiene por compatibilidad
             "notes": self.notes,
             "total": round(qty_to_charge * effective_price) if effective_price else 0,
         }

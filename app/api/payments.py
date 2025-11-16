@@ -27,18 +27,17 @@ def get_payments():
 
 @bp.route("/<int:id>", methods=["GET"])
 def get_payment(id):
-    """Obtiene un pago con sus asignaciones"""
+    """Obtiene un pago"""
     payment = Payment.query.get_or_404(id)
-    
-    payment_dict = payment.to_dict()
-    payment_dict["allocations"] = [a.to_dict() for a in payment.allocations]
-    
-    return jsonify(payment_dict)
+    return jsonify(payment.to_dict())
 
 
 @bp.route("", methods=["POST"])
 def create_payment():
-    """Registra un nuevo pago"""
+    """
+    Registra un nuevo pago
+    Sistema simplificado: los pagos solo se asocian al cliente
+    """
     data = request.json
     
     # Parsear fecha (manejar formato ISO con Z)
@@ -59,131 +58,47 @@ def create_payment():
     db.session.add(payment)
     db.session.commit()
     
-    # Asignar automáticamente a items no pagados del cliente
-    if "order_item_ids" in data:
-        allocate_payment_auto(payment.id, data["order_item_ids"])
-    else:
-        # Si no se especificaron items, asignar automáticamente a todos los items no pagados
-        unpaid_items = OrderItem.query.filter_by(
-            customer_id=data["customer_id"],
-            paid=False
-        ).order_by(OrderItem.created_at).all()
-        
-        if unpaid_items:
-            allocate_payment_auto(payment.id, [item.id for item in unpaid_items])
-    
-    # Refrescar el pago para obtener datos actualizados después de las allocations
+    # Refrescar el pago para obtener datos actualizados
     db.session.refresh(payment)
     
     return jsonify(payment.to_dict()), 201
 
 
-@bp.route("/<int:id>/allocate", methods=["POST"])
-def allocate_payment(id):
-    """Asigna un pago a items específicos"""
+@bp.route("/<int:id>", methods=["PUT"])
+def update_payment(id):
+    """Actualiza un pago (monto, método, referencia, notas)"""
     payment = Payment.query.get_or_404(id)
-    data = request.json
+    data = request.json or {}
     
-    # data = {"allocations": [{"order_item_id": 1, "amount": 5000}, ...]}
-    for alloc in data.get("allocations", []):
-        allocation = PaymentAllocation(
-            payment_id=payment.id,
-            order_item_id=alloc["order_item_id"],
-            amount=round(alloc["amount"]),
-        )
-        db.session.add(allocation)
-        
-        # Marcar item como pagado si se cubrió completo
-        item = OrderItem.query.get(alloc["order_item_id"])
-        if item:
-            # Usar charged_qty si está disponible
-            qty_to_charge = item.charged_qty if item.charged_qty is not None else item.qty
-            unit_price = item.unit_price or (item.product.sale_price if item.product else 0)
-            item_total = round(qty_to_charge * unit_price)
-            allocated_total = sum(a.amount for a in item.payment_allocations) + round(alloc["amount"])
-            
-            if allocated_total >= item_total:
-                item.paid = True
+    if "amount" in data:
+        payment.amount = round(data["amount"])
+    if "method" in data:
+        payment.method = data["method"]
+    if "reference" in data:
+        payment.reference = data["reference"]
+    if "notes" in data:
+        payment.notes = data["notes"]
+    if "date" in data and data["date"]:
+        date_str = data["date"].replace('Z', '+00:00')
+        payment.date = datetime.fromisoformat(date_str)
     
     db.session.commit()
     
-    return jsonify({"message": "Pago asignado"})
+    return jsonify(payment.to_dict())
 
 
-def allocate_payment_auto(payment_id, order_item_ids):
-    """Asigna un pago automáticamente a los items especificados"""
-    from ..models import Product
+@bp.route("/<int:id>", methods=["DELETE"])
+def delete_payment(id):
+    """Elimina un pago"""
+    payment = Payment.query.get_or_404(id)
     
-    payment = Payment.query.get(payment_id)
-    remaining_amount = payment.amount
-    
-    print(f"\n🔵 ALLOCATE AUTO: Payment #{payment_id}, Amount: ${remaining_amount}")
-    print(f"🔵 Items a procesar: {order_item_ids}")
-    
-    for item_id in order_item_ids:
-        if remaining_amount <= 0:
-            print(f"❌ No queda monto por asignar")
-            break
-        
-        item = OrderItem.query.get(item_id)
-        if not item:
-            print(f"❌ Item #{item_id} no encontrado")
-            continue
-        
-        # Calcular total del item, usando precio del producto si no hay unit_price
-        unit_price = item.unit_price
-        if not unit_price and item.product:
-            # Usar el precio de venta del producto
-            product = Product.query.get(item.product_id)
-            if product:
-                unit_price = product.sale_price or 0
-                print(f"📦 Item #{item_id}: usando precio producto ${unit_price}")
-        else:
-            print(f"💰 Item #{item_id}: usando unit_price ${unit_price}")
-        
-        # Usar charged_qty si está disponible (conversión de unidades), sino usar qty
-        qty_to_charge = item.charged_qty if item.charged_qty is not None else item.qty
-        unit_to_charge = item.charged_unit if item.charged_unit else item.unit
-        
-        item_total = round(qty_to_charge * (unit_price or 0))
-        print(f"📊 Item #{item_id}: qty={item.qty} {item.unit}, charged_qty={qty_to_charge} {unit_to_charge}, unit_price=${unit_price}, total=${item_total}")
-        
-        if item_total <= 0:
-            print(f"❌ Item #{item_id}: total es 0, skip")
-            continue
-        
-        already_paid = sum(a.amount for a in item.payment_allocations)
-        item_pending = item_total - already_paid
-        
-        print(f"💵 Item #{item_id}: ya pagado=${already_paid}, pendiente=${item_pending}")
-        
-        if item_pending <= 0:
-            print(f"✅ Item #{item_id}: ya está completamente pagado")
-            continue
-        
-        # Asignar lo que se pueda
-        to_allocate = min(remaining_amount, item_pending)
-        
-        allocation = PaymentAllocation(
-            payment_id=payment.id,
-            order_item_id=item.id,
-            amount=to_allocate,
-        )
-        db.session.add(allocation)
-        
-        print(f"✅ Asignando ${to_allocate} al item #{item_id}")
-        
-        remaining_amount -= to_allocate
-        
-        # Marcar como pagado si se cubrió
-        if to_allocate >= item_pending:
-            item.paid = True
-            print(f"🎉 Item #{item_id} marcado como PAGADO")
-        else:
-            print(f"⚠️  Item #{item_id} pago parcial (queda ${item_pending - to_allocate})")
-    
+    db.session.delete(payment)
     db.session.commit()
-    print(f"💾 Commit realizado. Monto restante: ${remaining_amount}\n")
+    
+    return jsonify({"message": "Pago eliminado"})
+
+
+# Función allocate_payment_auto eliminada - ya no se usa en el sistema simplificado
 
 
 @bp.route("/customer/<int:customer_id>/invoice", methods=["GET"])

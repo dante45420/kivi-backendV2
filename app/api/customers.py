@@ -4,7 +4,7 @@ CRUD completo
 """
 from flask import Blueprint, request, jsonify
 from ..db import db
-from ..models import Customer, OrderItem, Payment, PaymentAllocation
+from ..models import Customer, OrderItem, Payment
 
 bp = Blueprint("customers", __name__)
 
@@ -95,30 +95,94 @@ def delete_customer(id):
     return jsonify({"message": "Cliente eliminado"})
 
 
-@bp.route("/<int:id>/balance", methods=["GET"])
-def get_customer_balance(id):
-    """Obtiene el balance del cliente (deuda pendiente)"""
+@bp.route("/<int:id>/debt", methods=["GET"])
+def get_customer_debt(id):
+    """
+    Calcula la deuda total del cliente
+    Considera: pedidos finalizados con conversiones, ofertas y envío
+    """
+    from ..models import Order
+    from ..utils.shipping import calculate_shipping
+    
     customer = Customer.query.get_or_404(id)
     
-    # Items no pagados
-    unpaid_items = OrderItem.query.filter_by(customer_id=id, paid=False).all()
+    # Obtener todos los pedidos finalizados del cliente (completed o emitted)
+    finalized_orders = Order.query.filter(
+        Order.status.in_(['completed', 'emitted'])
+    ).all()
     
-    total_debt = sum(item.qty * (item.unit_price or 0) for item in unpaid_items)
+    total_debt = 0
+    orders_detail = []
     
-    # Pagos totales
+    for order in finalized_orders:
+        # Obtener items del cliente en este pedido
+        customer_items = [item for item in order.items if item.customer_id == id]
+        
+        if not customer_items:
+            continue
+        
+        # Calcular subtotal del pedido para este cliente
+        order_subtotal = 0
+        items_detail = []
+        
+        for item in customer_items:
+            # Usar charged_qty si existe (conversión aplicada), sino qty
+            qty_to_charge = item.charged_qty if item.charged_qty is not None else item.qty
+            
+            # Usar unit_price (ya incluye ofertas si se aplicaron), sino precio del producto
+            unit_price = item.unit_price
+            if not unit_price and item.product:
+                unit_price = item.product.sale_price or 0
+            
+            item_total = round(qty_to_charge * (unit_price or 0))
+            order_subtotal += item_total
+            
+            items_detail.append({
+                "item_id": item.id,
+                "product_name": item.product.name if item.product else "Producto desconocido",
+                "qty": item.qty,
+                "unit": item.unit,
+                "charged_qty": item.charged_qty,
+                "charged_unit": item.charged_unit,
+                "unit_price": unit_price,
+                "total": item_total
+            })
+        
+        # Calcular envío para este pedido
+        shipping_amount = calculate_shipping(order.shipping_type, order_subtotal)
+        order_total = order_subtotal + shipping_amount
+        
+        total_debt += order_total
+        
+        orders_detail.append({
+            "order_id": order.id,
+            "order_date": order.created_at.isoformat() if order.created_at else None,
+            "shipping_type": order.shipping_type,
+            "subtotal": order_subtotal,
+            "shipping_amount": shipping_amount,
+            "total": order_total,
+            "items": items_detail
+        })
+    
+    # Obtener pagos totales del cliente
     payments = Payment.query.filter_by(customer_id=id).all()
     total_paid = sum(p.amount for p in payments)
     
-    # Asignaciones
-    allocations = PaymentAllocation.query.join(Payment).filter(Payment.customer_id == id).all()
-    total_allocated = sum(a.amount for a in allocations)
+    # Deuda pendiente
+    pending_debt = total_debt - total_paid
     
     return jsonify({
         "customer": customer.to_dict(),
         "total_debt": round(total_debt),
-        "unpaid_items_count": len(unpaid_items),
-        "total_paid": total_paid,
-        "total_allocated": total_allocated,
-        "balance": round(total_debt - total_allocated),
+        "total_paid": round(total_paid),
+        "pending_debt": round(pending_debt),
+        "orders": orders_detail,
+        "orders_count": len(orders_detail)
     })
+
+
+@bp.route("/<int:id>/balance", methods=["GET"])
+def get_customer_balance(id):
+    """Obtiene el balance del cliente (compatibilidad con código antiguo)"""
+    return get_customer_debt(id)
 
