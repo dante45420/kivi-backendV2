@@ -1,5 +1,5 @@
 """
-Configuración de base de datos
+Configuración de base de dato
 """
 from flask_sqlalchemy import SQLAlchemy
 

@@ -41,13 +41,14 @@ images:
   - 'gcr.io/$PROJECT_ID/kivi-backend:$COMMIT_SHA'
 
 # Substitution variables (configurar en Cloud Build triggers)
+# Estos valores son solo ejemplos - los valores reales se configuran en el trigger
 substitutions:
-  _CLOUD_SQL_INSTANCE: 'kivi-project:us-central1:kivi-db'
-  _DATABASE_URL: 'postgresql://kivi_user:PASSWORD@/kivi_v2?host=/cloudsql/kivi-project:us-central1:kivi-db'
+  _CLOUD_SQL_INSTANCE: 'kivi-storage:us-central1:kivi-db'
+  _DATABASE_URL: 'postgresql://kivi_user:PASSWORD@/kivi_v2?host=/cloudsql/kivi-storage:us-central1:kivi-db'
   _GCS_BUCKET_NAME: 'kivi-v2-media'
   _SECRET_KEY: 'change-me-in-production'
-  _ADMIN_EMAIL: 'admin@kivi.cl'
+  _ADMIN_EMAIL: 'danteparodiwerht@gmail.com'
   _ADMIN_PASSWORD: 'change-me-in-production'
-  _ALLOWED_ORIGINS: 'https://kivi-frontend-xxxxx.run.app'
+  _ALLOWED_ORIGINS: '*'
   _GCS_SECRET_NAME: 'gcs-credentials'
 

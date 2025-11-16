@@ -1,0 +1,36 @@
+═══════════════════════════════════════════════════════════════
+  VALORES PARA CONFIGURAR EL TRIGGER DE CLOUD BUILD
+═══════════════════════════════════════════════════════════════
+
+Copia estos valores cuando configures el trigger en la consola:
+
+───────────────────────────────────────────────────────────────
+VARIABLE                    VALOR
+───────────────────────────────────────────────────────────────
+_CLOUD_SQL_INSTANCE         kivi-storage:us-central1:kivi-db
+
+_DATABASE_URL               postgresql://kivi_user:Q3sKF14Uppj/EXH/Bi2A5g==@/kivi_v2?host=/cloudsql/kivi-storage:us-central1:kivi-db
+
+_GCS_BUCKET_NAME            kivi-v2-media
+
+_SECRET_KEY                 [Genera uno nuevo con: openssl rand -hex 32]
+                            O usa el que ya tienes configurado
+
+_ADMIN_EMAIL                danteparodiwerht@gmail.com
+
+_ADMIN_PASSWORD             [Tu contraseña de admin actual]
+
+_ALLOWED_ORIGINS            *
+
+_GCS_SECRET_NAME            gcs-credentials
+
+───────────────────────────────────────────────────────────────
+
+NOTAS IMPORTANTES:
+- El repositorio debe estar conectado primero a Cloud Build
+- Estos valores se configuran en "Substitution variables" del trigger
+- _ADMIN_PASSWORD debe ser tu contraseña real (no la cambies si ya funciona)
+- _SECRET_KEY debe ser una clave secreta fuerte
+
+═══════════════════════════════════════════════════════════════
+
