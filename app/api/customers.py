@@ -126,8 +126,12 @@ def get_customer_debt(id):
         items_detail = []
         
         for item in customer_items:
-            # Usar charged_qty si existe (conversión aplicada), sino qty
-            qty_to_charge = item.charged_qty if item.charged_qty is not None else item.qty
+            # Usar charged_qty solo si el pedido está completed y existe conversión
+            # Si está emitted, usar qty original (aún no se ha registrado la compra)
+            if order.status == 'completed' and item.charged_qty is not None:
+                qty_to_charge = item.charged_qty
+            else:
+                qty_to_charge = item.qty
             
             # Usar unit_price (ya incluye ofertas si se aplicaron), sino precio del producto
             unit_price = item.unit_price
@@ -157,6 +161,7 @@ def get_customer_debt(id):
         orders_detail.append({
             "order_id": order.id,
             "order_date": order.created_at.isoformat() if order.created_at else None,
+            "order_status": order.status,  # Agregar estado del pedido
             "shipping_type": order.shipping_type,
             "subtotal": order_subtotal,
             "shipping_amount": shipping_amount,
