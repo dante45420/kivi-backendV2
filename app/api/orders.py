@@ -384,10 +384,11 @@ def update_order_item(item_id):
     try:
         item = OrderItem.query.get_or_404(item_id)
         
-        # Validar que el pedido no esté completado
-        if item.order.status == "completed":
+        # Permitir editar items de pedidos completados (para ajustes después de registrar compra)
+        # Solo bloquear si el pedido está en draft (aún no emitido)
+        if item.order.status == "draft":
             return jsonify({
-                "error": "No se pueden modificar items de un pedido completado"
+                "error": "No se pueden modificar items de un pedido en borrador. Emite el pedido primero."
             }), 400
         
         data = request.json or {}

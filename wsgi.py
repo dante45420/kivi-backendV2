@@ -26,16 +26,20 @@ def create_app():
         # Desarrollo: permitir todos
         CORS(app, resources={r"/api/*": {
             "origins": "*",
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"]
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+            "expose_headers": ["Content-Type"],
+            "max_age": 3600
         }})
     else:
         # Producción: dominios específicos
         CORS(app, resources={r"/api/*": {
             "origins": allowed_origins,
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+            "expose_headers": ["Content-Type"],
+            "supports_credentials": True,
+            "max_age": 3600
         }})
     
     # Inicializar base de datos
