@@ -107,6 +107,7 @@ def get_customer_debt(id):
     customer = Customer.query.get_or_404(id)
     
     # Obtener todos los pedidos finalizados del cliente (completed o emitted)
+    # Incluir ambos estados para ver pedidos completados y emitidos en contabilidad
     finalized_orders = Order.query.filter(
         Order.status.in_(['completed', 'emitted'])
     ).all()

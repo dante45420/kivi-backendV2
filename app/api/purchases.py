@@ -2,6 +2,7 @@
 API: Purchases / Compras
 Gestión de compras de productos
 """
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 from ..db import db
 from ..models import Purchase, Product, PriceHistory, Order, OrderItem
@@ -45,8 +46,32 @@ def create_purchase():
     )
     db.session.add(purchase)
     
-    # Actualizar precio de compra del producto
-    product.purchase_price = float(price_per_unit)
+    # Calcular el precio de compra en la unidad del producto (unidad de cobro)
+    # Si hay conversión, convertir el precio a la unidad del producto
+    if purchase.conversion_qty and purchase.conversion_unit:
+        # Si la unidad de compra es diferente a la unidad del producto, convertir el precio
+        if unit != product.unit:
+            # El precio debe estar en la unidad del producto
+            if unit == "unit" and product.unit == "kg":
+                # Se compró en unidades, pero el producto es en kg
+                # Precio por kg = precio_total / conversion_qty (kg cobrados)
+                price_in_product_unit = float(price_total) / purchase.conversion_qty
+            elif unit == "kg" and product.unit == "unit":
+                # Se compró en kg, pero el producto es en unidades
+                # Precio por unidad = precio_total / conversion_qty (unidades cobradas)
+                price_in_product_unit = float(price_total) / purchase.conversion_qty
+            else:
+                # Misma unidad, usar precio_per_unit directamente
+                price_in_product_unit = float(price_per_unit)
+        else:
+            # Misma unidad, usar precio_per_unit directamente
+            price_in_product_unit = float(price_per_unit)
+    else:
+        # No hay conversión, usar precio_per_unit directamente
+        price_in_product_unit = float(price_per_unit)
+    
+    # Actualizar precio de compra del producto en su unidad
+    product.purchase_price = price_in_product_unit
     
     # Si hay conversión, actualizar avg_units_per_kg
     if purchase.conversion_qty and purchase.conversion_unit:
@@ -83,11 +108,11 @@ def create_purchase():
         
         print(f"✅ Actualizado {len(order_items)} items con conversión para producto #{product_id}")
     
-    # Crear historial de precio
+    # Crear historial de precio (usar el precio en la unidad del producto)
     price_history = PriceHistory(
         product_id=product_id,
-        purchase_price=float(price_per_unit),
-        notes=f"Compra registrada: {qty} {unit} por ${price_total}"
+        purchase_price=price_in_product_unit,
+        notes=f"Compra registrada: {qty} {unit} por ${price_total} (precio en {product.unit}: ${price_in_product_unit:.2f})"
     )
     db.session.add(price_history)
     
@@ -108,9 +133,10 @@ def create_purchase():
                     all_purchased = False
                     break
             
-            # Si todos tienen precio, finalizar el pedido
+            # Si todos tienen precio, marcar el pedido como completado
             if all_purchased:
-                order.status = "finalized"
+                order.status = "completed"
+                order.completed_at = datetime.utcnow()
     
     db.session.commit()
     
