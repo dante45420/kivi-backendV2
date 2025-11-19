@@ -470,3 +470,84 @@ def add_expense(id):
     
     return jsonify(expense.to_dict()), 201
 
+
+@bp.route("/fix-finalized", methods=["POST"])
+def fix_finalized_orders():
+    """
+    Endpoint temporal para corregir pedidos con estado 'finalized' (incorrecto)
+    y cambiarlos a 'completed' (correcto)
+    
+    También busca pedidos emitidos que tienen todos sus productos con precio de compra
+    y los marca como completados.
+    """
+    try:
+        from sqlalchemy import text
+        
+        # Método 1: Buscar pedidos con status 'finalized' directamente en la BD
+        # (por si acaso se guardó como string en la base de datos)
+        result = db.session.execute(text("SELECT id, status FROM orders WHERE status = 'finalized'"))
+        finalized_in_db = result.fetchall()
+        
+        # Método 2: Buscar en el modelo (por si SQLAlchemy los encuentra)
+        all_orders = Order.query.all()
+        finalized_orders = [o for o in all_orders if o.status == 'finalized']
+        
+        # Combinar ambos métodos
+        all_finalized_ids = set()
+        for row in finalized_in_db:
+            all_finalized_ids.add(row[0])
+        for order in finalized_orders:
+            all_finalized_ids.add(order.id)
+        
+        fixed_count = 0
+        fixed_order_ids = []
+        
+        # Corregir pedidos encontrados
+        for order_id in all_finalized_ids:
+            order = Order.query.get(order_id)
+            if order and order.status == 'finalized':
+                order.status = "completed"
+                if not order.completed_at:
+                    order.completed_at = datetime.utcnow()
+                fixed_count += 1
+                fixed_order_ids.append(order_id)
+        
+        # Método 3: Buscar pedidos emitidos que deberían estar completados
+        # (tienen todos sus productos con precio de compra)
+        emitted_orders = Order.query.filter_by(status="emitted").all()
+        for order in emitted_orders:
+            # Verificar si todos los productos del pedido tienen compra registrada
+            all_purchased = True
+            for item in order.items:
+                item_product = Product.query.get(item.product_id)
+                if not item_product or not item_product.purchase_price:
+                    all_purchased = False
+                    break
+            
+            # Si todos tienen precio, marcar como completado
+            if all_purchased:
+                order.status = "completed"
+                if not order.completed_at:
+                    order.completed_at = datetime.utcnow()
+                fixed_count += 1
+                fixed_order_ids.append(order.id)
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": f"Se corrigieron {fixed_count} pedido(s)",
+            "fixed": fixed_count,
+            "order_ids": fixed_order_ids,
+            "details": {
+                "finalized_found": len(all_finalized_ids),
+                "emitted_to_completed": fixed_count - len(all_finalized_ids)
+            }
+        }), 200
+    
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error corrigiendo pedidos finalized: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al corregir pedidos: {str(e)}"}), 500
+
