@@ -2,6 +2,7 @@
 API: Clientes
 CRUD completo
 """
+from datetime import datetime
 from flask import Blueprint, request, jsonify
 from ..db import db
 from ..models import Customer, OrderItem, Payment
@@ -106,11 +107,25 @@ def get_customer_debt(id):
     
     customer = Customer.query.get_or_404(id)
     
-    # Obtener todos los pedidos finalizados del cliente (completed o emitted)
+    # Obtener todos los pedidos finalizados del cliente (completed, emitted, o finalized)
+    # Incluir 'finalized' temporalmente para recuperar pedidos con estado incorrecto
     # Incluir ambos estados para ver pedidos completados y emitidos en contabilidad
     finalized_orders = Order.query.filter(
-        Order.status.in_(['completed', 'emitted'])
+        Order.status.in_(['completed', 'emitted', 'finalized'])
     ).all()
+    
+    # Corregir pedidos con estado 'finalized' a 'completed' automáticamente
+    needs_commit = False
+    for order in finalized_orders:
+        if order.status == 'finalized':
+            order.status = 'completed'
+            if not order.completed_at:
+                order.completed_at = datetime.utcnow()
+            needs_commit = True
+    
+    # Guardar correcciones si hubo alguna
+    if needs_commit:
+        db.session.commit()
     
     total_debt = 0
     orders_detail = []
