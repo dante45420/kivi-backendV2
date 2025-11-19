@@ -394,7 +394,25 @@ def update_order_item(item_id):
         data = request.json or {}
         
         if "qty" in data:
-            item.qty = data["qty"]
+            new_qty = data["qty"]
+            item.qty = new_qty
+            
+            # Si el item tiene conversión configurada, recalcular charged_qty
+            # Solo si realmente hay una conversión (item.unit != charged_unit)
+            if item.charged_unit and item.unit != item.charged_unit and item.product:
+                # Hay conversión real, recalcular charged_qty
+                if item.unit == "unit" and item.charged_unit == "kg":
+                    # Item en unidades, se cobra en kg
+                    if item.product.avg_units_per_kg and item.product.avg_units_per_kg > 0:
+                        item.charged_qty = new_qty / item.product.avg_units_per_kg
+                elif item.unit == "kg" and item.charged_unit == "unit":
+                    # Item en kg, se cobra en unidades
+                    if item.product.avg_units_per_kg and item.product.avg_units_per_kg > 0:
+                        item.charged_qty = new_qty * item.product.avg_units_per_kg
+            elif item.charged_unit and item.unit == item.charged_unit:
+                # Item está en la unidad correcta, charged_qty debe ser igual a qty
+                item.charged_qty = new_qty
+        
         if "unit_price" in data:
             item.unit_price = data["unit_price"]
         elif "unit_price" not in data and item.product:
