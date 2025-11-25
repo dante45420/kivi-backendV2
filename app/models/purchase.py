@@ -20,6 +20,10 @@ class Purchase(db.Model):
     price_total = db.Column(db.Float, nullable=False)
     price_per_unit = db.Column(db.Float, nullable=False)
     
+    # Precio por unidad de cobro (opcional, cuando hay conversión)
+    # Permite anotar directamente el precio en la unidad en que se cobró
+    price_per_charged_unit = db.Column(db.Float, nullable=True)
+    
     # Conversión (opcional, cuando se compra en unidad diferente)
     conversion_qty = db.Column(db.Float, nullable=True)
     conversion_unit = db.Column(db.String(16), nullable=True)
@@ -41,6 +45,7 @@ class Purchase(db.Model):
             "unit": self.unit,
             "price_total": self.price_total,
             "price_per_unit": self.price_per_unit,
+            "price_per_charged_unit": self.price_per_charged_unit,
             "conversion_qty": self.conversion_qty,
             "conversion_unit": self.conversion_unit,
             "notes": self.notes,

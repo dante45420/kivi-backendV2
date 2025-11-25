@@ -33,6 +33,13 @@ def create_purchase():
     if not all([qty, unit, price_total, price_per_unit]):
         return jsonify({"error": "Faltan datos requeridos"}), 400
     
+    # Obtener price_per_charged_unit si está disponible
+    price_per_charged_unit = data.get("price_per_charged_unit")
+    if price_per_charged_unit:
+        price_per_charged_unit = float(price_per_charged_unit)
+    else:
+        price_per_charged_unit = None
+    
     # Crear registro de compra
     purchase = Purchase(
         product_id=product_id,
@@ -40,6 +47,7 @@ def create_purchase():
         unit=unit,
         price_total=float(price_total),
         price_per_unit=float(price_per_unit),
+        price_per_charged_unit=price_per_charged_unit,
         conversion_qty=float(data.get("conversion_qty")) if data.get("conversion_qty") else None,
         conversion_unit=data.get("conversion_unit"),
         notes=data.get("notes")
@@ -47,9 +55,11 @@ def create_purchase():
     db.session.add(purchase)
     
     # Calcular el precio de compra en la unidad del producto (unidad de cobro)
-    # Si hay conversión, convertir el precio a la unidad del producto
-    if purchase.conversion_qty and purchase.conversion_unit:
-        # Si la unidad de compra es diferente a la unidad del producto, convertir el precio
+    # Si se proporcionó price_per_charged_unit, usarlo directamente
+    if price_per_charged_unit:
+        price_in_product_unit = price_per_charged_unit
+    elif purchase.conversion_qty and purchase.conversion_unit:
+        # Si hay conversión, convertir el precio a la unidad del producto
         if unit != product.unit:
             # El precio debe estar en la unidad del producto
             if unit == "unit" and product.unit == "kg":
