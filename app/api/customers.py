@@ -111,6 +111,28 @@ def get_customer_debt(id):
         # Obtener pedidos finalizados que tienen items de este cliente
         # Usar join para filtrar eficientemente desde la base de datos
         from sqlalchemy.orm import joinedload
+        from sqlalchemy import text
+        
+        # Intentar ejecutar la migración si la columna no existe
+        try:
+            # Verificar si la columna existe
+            db_url = str(db.engine.url)
+            if 'postgresql' in db_url.lower():
+                check_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='order_items' AND column_name='cost'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                if not result:
+                    # La columna no existe, agregarla
+                    db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada en get_customer_debt: columna 'cost' agregada")
+        except Exception as e:
+            db.session.rollback()
+            print(f"⚠️  Error verificando/agregando columna cost: {e}")
+        
         finalized_orders = Order.query.join(
             OrderItem, Order.id == OrderItem.order_id
         ).options(

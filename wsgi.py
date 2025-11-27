@@ -46,21 +46,22 @@ def create_app():
     db.init_app(app)
     
     with app.app_context():
-        # Importar modelos
-        from app.models import (
-            Category, Product, Customer, Order, OrderItem,
-            Expense, Payment, PaymentAllocation, WeeklyOffer,
-            PriceHistory, ContentTemplate, KiviTip
-        )
-        
         # Crear carpeta instance si no existe
         os.makedirs(os.path.join(os.path.dirname(__file__), 'instance'), exist_ok=True)
         
         # Crear tablas
         db.create_all()
         
-        # Ejecutar migraciones automáticamente
+        # Ejecutar migraciones automáticamente ANTES de importar modelos
+        # Esto asegura que las columnas existan antes de que SQLAlchemy intente usarlas
         run_migrations()
+        
+        # Importar modelos DESPUÉS de ejecutar migraciones
+        from app.models import (
+            Category, Product, Customer, Order, OrderItem,
+            Expense, Payment, PaymentAllocation, WeeklyOffer,
+            PriceHistory, ContentTemplate, KiviTip
+        )
         
         # Inicializar datos de prueba si es desarrollo
         if app.config["FLASK_ENV"] == "development":
@@ -106,23 +107,11 @@ def create_app():
 
 def run_migrations():
     """Ejecuta migraciones de base de datos automáticamente"""
+    from sqlalchemy import text
+    
     try:
         db_url = str(db.engine.url)
-        
-        # Verificar si la columna 'cost' ya existe en order_items
-        # Intentar hacer una consulta que incluya la columna cost
-        try:
-            from sqlalchemy import text
-            result = db.session.execute(text("SELECT cost FROM order_items LIMIT 1"))
-            # Si no hay error, la columna ya existe
-            print("✅ Columna 'cost' ya existe en order_items")
-            return
-        except Exception:
-            # La columna no existe, agregarla
-            pass
-        
-        # Agregar columna cost si no existe
-        from sqlalchemy import text
+        print(f"🔄 Verificando migraciones para: {db_url}")
         
         if 'postgresql' in db_url.lower():
             # PostgreSQL: verificar primero si existe, luego agregar
@@ -140,35 +129,47 @@ def run_migrations():
                     return
                 
                 # No existe, agregarla
+                print("🔄 Agregando columna 'cost' a order_items...")
                 db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
                 db.session.commit()
                 print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
             except Exception as e:
                 db.session.rollback()
+                error_str = str(e).lower()
                 # Si falla, puede ser que ya exista
-                if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                if "already exists" in error_str or "duplicate" in error_str:
                     print("✅ Columna 'cost' ya existe en order_items")
                 else:
-                    print(f"⚠️  Error en migración PostgreSQL: {e}")
+                    print(f"❌ Error en migración PostgreSQL: {e}")
+                    import traceback
+                    traceback.print_exc()
         elif 'sqlite' in db_url.lower():
             # SQLite: verificar si existe antes de agregar
             try:
-                # SQLite no soporta IF NOT EXISTS en ALTER TABLE ADD COLUMN
-                # Intentar agregar directamente
-                db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
-                db.session.commit()
-                print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
-            except Exception as e:
-                db.session.rollback()
-                # Si falla, probablemente ya existe
-                error_str = str(e).lower()
-                if "duplicate column" in error_str or "already exists" in error_str:
-                    print("✅ Columna 'cost' ya existe en order_items")
-                else:
-                    print(f"⚠️  Error en migración SQLite: {e}")
+                # Intentar hacer una consulta que incluya la columna cost
+                db.session.execute(text("SELECT cost FROM order_items LIMIT 1"))
+                print("✅ Columna 'cost' ya existe en order_items")
+                return
+            except Exception:
+                # La columna no existe, agregarla
+                try:
+                    print("🔄 Agregando columna 'cost' a order_items...")
+                    db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "duplicate column" in error_str or "already exists" in error_str:
+                        print("✅ Columna 'cost' ya existe en order_items")
+                    else:
+                        print(f"❌ Error en migración SQLite: {e}")
+                        import traceback
+                        traceback.print_exc()
         else:
             # Otra base de datos, intentar método genérico
             try:
+                print("🔄 Agregando columna 'cost' a order_items...")
                 db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
                 db.session.commit()
                 print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
@@ -178,9 +179,11 @@ def run_migrations():
                 if "already exists" in error_str or "duplicate" in error_str:
                     print("✅ Columna 'cost' ya existe en order_items")
                 else:
-                    print(f"⚠️  Error en migración: {e}")
+                    print(f"❌ Error en migración: {e}")
+                    import traceback
+                    traceback.print_exc()
     except Exception as e:
-        print(f"⚠️  Error ejecutando migraciones: {e}")
+        print(f"❌ Error ejecutando migraciones: {e}")
         import traceback
         traceback.print_exc()
 
