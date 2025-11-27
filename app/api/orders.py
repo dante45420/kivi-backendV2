@@ -300,16 +300,11 @@ def update_order(id):
 
 @bp.route("/<int:id>/items", methods=["POST"])
 def add_order_item(id):
-    """Agrega un item a un pedido existente"""
+    """Agrega un item a un pedido existente (permite agregar a pedidos completados para remates)"""
     try:
         order = Order.query.get_or_404(id)
         
-        # Permitir agregar items a pedidos finalized (para remates después de compra)
-        # Solo bloquear si está completed
-        if order.status == "completed":
-            return jsonify({
-                "error": "No se pueden agregar items a un pedido completado"
-            }), 400
+        # Permitir agregar items a cualquier pedido, incluso completados (para remates)
         
         data = request.json
         
@@ -373,6 +368,104 @@ def add_order_item(id):
     except Exception as e:
         db.session.rollback()
         print(f"Error agregando item a pedido: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error al agregar item: {str(e)}"}), 500
+
+
+@bp.route("/items/add", methods=["POST"])
+def add_order_item_with_auto_create():
+    """
+    Agrega un item a un pedido. Si no se especifica order_id, crea un pedido nuevo.
+    Útil para agregar items en remate a clientes sin pedido específico.
+    """
+    try:
+        data = request.json
+        
+        if not data:
+            return jsonify({"error": "No se enviaron datos"}), 400
+        
+        if "customer_id" not in data:
+            return jsonify({"error": "customer_id es requerido"}), 400
+        
+        if "product_id" not in data:
+            return jsonify({"error": "product_id es requerido"}), 400
+        
+        if "qty" not in data:
+            return jsonify({"error": "qty es requerido"}), 400
+        
+        customer_id = data["customer_id"]
+        product_id = data["product_id"]
+        order_id = data.get("order_id")  # Opcional
+        
+        # Validar que el producto existe
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({"error": f"Producto con id {product_id} no encontrado"}), 404
+        
+        # Validar que el cliente existe
+        customer = Customer.query.get(customer_id)
+        if not customer:
+            return jsonify({"error": f"Cliente con id {customer_id} no encontrado"}), 404
+        
+        # Si no se especifica order_id, crear un pedido nuevo
+        if not order_id:
+            order = Order(
+                status="completed",  # Pedidos de remate se crean como completados
+                source="manual",
+                shipping_type="normal",
+                notes="Pedido creado automáticamente para remate"
+            )
+            db.session.add(order)
+            db.session.flush()  # Para obtener el ID
+            order_id = order.id
+        else:
+            # Verificar que el pedido existe
+            order = Order.query.get(order_id)
+            if not order:
+                return jsonify({"error": f"Pedido con id {order_id} no encontrado"}), 404
+        
+        # Aplicar oferta semanal si no se especificó unit_price
+        unit_price = data.get("unit_price")
+        if not unit_price:
+            from ..models import WeeklyOffer
+            # Buscar oferta activa para este producto
+            order_date = order.created_at or datetime.utcnow()
+            active_offer = WeeklyOffer.query.filter(
+                WeeklyOffer.product_id == product_id,
+                WeeklyOffer.start_date <= order_date,
+                WeeklyOffer.end_date >= order_date,
+                WeeklyOffer.active == True
+            ).first()
+            
+            if active_offer:
+                unit_price = active_offer.special_price
+            else:
+                # Si no hay oferta, usar precio de venta del producto
+                unit_price = product.sale_price if product else 0
+        
+        item = OrderItem(
+            order_id=order_id,
+            customer_id=customer_id,
+            product_id=product_id,
+            qty=data["qty"],
+            unit=data.get("unit", "kg"),
+            unit_price=unit_price,
+            notes=data.get("notes"),
+        )
+        
+        db.session.add(item)
+        db.session.commit()
+        
+        return jsonify({
+            "item": item.to_dict(),
+            "order_id": order_id,
+            "order_created": not data.get("order_id")
+        }), 201
+    
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error agregando item (con auto-crear pedido): {e}")
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Error al agregar item: {str(e)}"}), 500

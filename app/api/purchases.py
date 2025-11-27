@@ -160,9 +160,66 @@ def create_purchase():
 def get_purchases():
     """
     Obtener todas las compras
+    Si se pasa ?with_customers=true, incluye información de clientes asociados
     """
+    include_customers = request.args.get("with_customers", "false").lower() == "true"
+    
     purchases = Purchase.query.order_by(Purchase.created_at.desc()).all()
-    return jsonify([p.to_dict() for p in purchases])
+    
+    if not include_customers:
+        return jsonify([p.to_dict() for p in purchases])
+    
+    # Incluir información de clientes asociados
+    from ..models import OrderItem, Customer, Order
+    
+    purchases_with_customers = []
+    for purchase in purchases:
+        purchase_dict = purchase.to_dict()
+        
+        # Buscar pedidos que usaron este producto alrededor de la fecha de compra
+        # Buscar items de pedidos completados que usan este producto
+        # y que fueron creados cerca de la fecha de compra (dentro de 7 días antes o después)
+        purchase_date = purchase.created_at
+        if purchase_date:
+            from datetime import timedelta
+            date_start = purchase_date - timedelta(days=7)
+            date_end = purchase_date + timedelta(days=7)
+            
+            # Buscar items de pedidos completados en ese rango de fechas
+            related_items = OrderItem.query.join(Order).filter(
+                OrderItem.product_id == purchase.product_id,
+                Order.status.in_(["completed", "finalized"]),
+                Order.created_at >= date_start,
+                Order.created_at <= date_end
+            ).all()
+            
+            # Agrupar por cliente
+            customers_info = {}
+            for item in related_items:
+                customer = item.customer
+                if customer:
+                    customer_id = customer.id
+                    if customer_id not in customers_info:
+                        customers_info[customer_id] = {
+                            "customer": customer.to_dict(),
+                            "items": [],
+                            "total_qty": 0
+                        }
+                    
+                    qty = item.charged_qty or item.qty
+                    customers_info[customer_id]["items"].append({
+                        "order_id": item.order_id,
+                        "qty": qty,
+                        "unit": item.charged_unit or item.unit,
+                        "order_date": item.order.created_at.isoformat() if item.order.created_at else None
+                    })
+                    customers_info[customer_id]["total_qty"] += qty
+            
+            purchase_dict["customers"] = list(customers_info.values())
+        
+        purchases_with_customers.append(purchase_dict)
+    
+    return jsonify(purchases_with_customers)
 
 
 @bp.route("/<int:purchase_id>", methods=["GET"])

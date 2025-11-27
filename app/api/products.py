@@ -250,3 +250,52 @@ def get_price_history(id):
     
     return jsonify([h.to_dict() for h in history])
 
+
+@bp.route("/<int:id>/price-at-date", methods=["GET"])
+def get_price_at_date(id):
+    """
+    Obtiene el precio de compra de un producto en una fecha específica.
+    Retorna el precio más reciente anterior o igual a la fecha dada.
+    """
+    from datetime import datetime
+    
+    product = Product.query.get_or_404(id)
+    date_str = request.args.get("date")
+    
+    if not date_str:
+        # Si no se proporciona fecha, retornar el precio actual
+        return jsonify({
+            "product_id": id,
+            "purchase_price": product.purchase_price or 0,
+            "date": None,
+            "is_current": True
+        })
+    
+    try:
+        target_date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+    except:
+        return jsonify({"error": "Fecha inválida. Usar formato ISO (YYYY-MM-DDTHH:MM:SS)"}), 400
+    
+    # Buscar el precio más reciente anterior o igual a la fecha
+    price_history = PriceHistory.query.filter(
+        PriceHistory.product_id == id,
+        PriceHistory.date <= target_date
+    ).order_by(PriceHistory.date.desc()).first()
+    
+    if price_history:
+        return jsonify({
+            "product_id": id,
+            "purchase_price": price_history.purchase_price,
+            "date": price_history.date.isoformat() if price_history.date else None,
+            "is_current": False
+        })
+    else:
+        # Si no hay historial anterior, usar el precio actual
+        return jsonify({
+            "product_id": id,
+            "purchase_price": product.purchase_price or 0,
+            "date": None,
+            "is_current": True,
+            "note": "No hay historial anterior a esta fecha, usando precio actual"
+        })
+
