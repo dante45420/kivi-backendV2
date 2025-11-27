@@ -15,68 +15,93 @@ bp = Blueprint("orders", __name__)
 @bp.route("", methods=["GET"])
 def get_orders():
     """Lista todos los pedidos"""
-    status = request.args.get("status")
-    
-    query = Order.query
-    
-    if status:
-        query = query.filter_by(status=status)
-    
-    orders = query.order_by(Order.created_at.desc()).all()
-    
-    # Incluir items y conteo
-    result = []
-    for order in orders:
-        order_dict = order.to_dict()
-        order_dict["items_count"] = len(order.items)
-        order_dict["customers_count"] = len(set(item.customer_id for item in order.items))
-        result.append(order_dict)
-    
-    return jsonify(result)
+    try:
+        status = request.args.get("status")
+        
+        query = Order.query
+        
+        if status:
+            query = query.filter_by(status=status)
+        
+        orders = query.order_by(Order.created_at.desc()).all()
+        
+        # Incluir items y conteo
+        result = []
+        for order in orders:
+            try:
+                order_dict = order.to_dict()
+                order_dict["items_count"] = len(order.items)
+                order_dict["customers_count"] = len(set(item.customer_id for item in order.items))
+                result.append(order_dict)
+            except Exception as e:
+                # Si hay error con un pedido específico, continuar con los demás
+                print(f"⚠️  Error procesando pedido {order.id}: {e}")
+                continue
+        
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error obteniendo pedidos: {str(e)}"}), 500
 
 
 @bp.route("/<int:id>", methods=["GET"])
 def get_order(id):
     """Obtiene un pedido con todos sus items"""
-    from ..utils.shipping import calculate_shipping
-    
-    order = Order.query.get_or_404(id)
-    
-    order_dict = order.to_dict()
-    order_dict["items"] = [item.to_dict() for item in order.items]
-    order_dict["expenses"] = [exp.to_dict() for exp in order.expenses]
-    
-    # Calcular subtotal usando charged_qty si existe (para conversiones)
-    # Usar la misma lógica que get_customer_debt
-    subtotal = 0
-    for item in order.items:
-        # Usar charged_qty solo si el pedido está completed y existe conversión
-        if order.status == 'completed' and item.charged_qty is not None:
-            qty_to_charge = item.charged_qty
-        else:
-            qty_to_charge = item.qty
+    try:
+        from ..utils.shipping import calculate_shipping
         
-        # Usar unit_price del item, o el sale_price del producto si no existe
-        unit_price = item.unit_price
-        if not unit_price and item.product:
-            unit_price = item.product.sale_price or 0
+        order = Order.query.get_or_404(id)
         
-        item_total = round(qty_to_charge * (unit_price or 0))
-        subtotal += item_total
-    
-    # Calcular envío
-    shipping_amount = calculate_shipping(order.shipping_type, subtotal)
-    
-    # Calcular total: subtotal + shipping + expenses
-    expenses_total = sum(exp.amount for exp in order.expenses)
-    total = subtotal + shipping_amount + expenses_total
-    
-    order_dict["subtotal"] = round(subtotal)
-    order_dict["shipping_amount"] = shipping_amount
-    order_dict["expenses_total"] = expenses_total
-    order_dict["total"] = round(total)
-    
-    return jsonify(order_dict)
+        order_dict = order.to_dict()
+        # Manejar items de forma segura
+        items_list = []
+        for item in order.items:
+            try:
+                items_list.append(item.to_dict())
+            except Exception as e:
+                print(f"⚠️  Error procesando item {item.id}: {e}")
+                # Continuar con los demás items
+                continue
+        
+        order_dict["items"] = items_list
+        order_dict["expenses"] = [exp.to_dict() for exp in order.expenses]
+        
+        # Calcular subtotal usando charged_qty si existe (para conversiones)
+        # Usar la misma lógica que get_customer_debt
+        subtotal = 0
+        for item in order.items:
+            # Usar charged_qty solo si el pedido está completed y existe conversión
+            if order.status == 'completed' and item.charged_qty is not None:
+                qty_to_charge = item.charged_qty
+            else:
+                qty_to_charge = item.qty
+            
+            # Usar unit_price del item, o el sale_price del producto si no existe
+            unit_price = item.unit_price
+            if not unit_price and item.product:
+                unit_price = item.product.sale_price or 0
+            
+            item_total = round(qty_to_charge * (unit_price or 0))
+            subtotal += item_total
+        
+        # Calcular envío
+        shipping_amount = calculate_shipping(order.shipping_type, subtotal)
+        
+        # Calcular total: subtotal + shipping + expenses
+        expenses_total = sum(exp.amount for exp in order.expenses)
+        total = subtotal + shipping_amount + expenses_total
+        
+        order_dict["subtotal"] = round(subtotal)
+        order_dict["shipping_amount"] = shipping_amount
+        order_dict["expenses_total"] = expenses_total
+        order_dict["total"] = round(total)
+        
+        return jsonify(order_dict)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error obteniendo pedido: {str(e)}"}), 500
 
 
 @bp.route("/parse", methods=["POST"])

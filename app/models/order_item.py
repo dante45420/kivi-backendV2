@@ -46,6 +46,12 @@ class OrderItem(db.Model):
         qty_to_charge = self.charged_qty if self.charged_qty is not None else self.qty
         unit_to_charge = self.charged_unit if self.charged_unit else self.unit
         
+        # Obtener cost de forma segura (puede no existir si la migración no se ha ejecutado)
+        try:
+            cost = getattr(self, 'cost', None)
+        except Exception:
+            cost = None
+        
         # En el nuevo sistema simplificado, paid_amount ya no se calcula aquí
         # Se calcula a nivel de cliente (total de pagos vs total de pedidos)
         
@@ -62,7 +68,7 @@ class OrderItem(db.Model):
             "unit": self.unit,
             "charged_qty": self.charged_qty,
             "charged_unit": self.charged_unit,
-            "cost": self.cost,
+            "cost": cost,
             "unit_price": self.unit_price or effective_price,
             "paid": self.paid,  # Deprecated, pero se mantiene por compatibilidad
             "notes": self.notes,

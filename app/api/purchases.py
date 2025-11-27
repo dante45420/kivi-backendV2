@@ -114,8 +114,17 @@ def create_purchase():
                     item.charged_unit = charged_unit
             
             # Registrar el costo en la unidad de cobro (solo si no tiene costo ya)
-            if item.cost is None:
-                item.cost = cost_per_charged_unit
+            # Manejar caso donde la columna puede no existir aún
+            try:
+                current_cost = getattr(item, 'cost', None)
+                if current_cost is None:
+                    item.cost = cost_per_charged_unit
+            except Exception:
+                # Si la columna no existe, intentar asignarla (puede fallar si la migración no se ejecutó)
+                try:
+                    item.cost = cost_per_charged_unit
+                except Exception as e:
+                    print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
         
         print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
     

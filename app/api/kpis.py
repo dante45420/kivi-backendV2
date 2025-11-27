@@ -57,11 +57,16 @@ def get_kpis():
                 item_revenue = round(qty_to_charge * (unit_price or 0))
                 order_subtotal += item_revenue
                 
-                # Calcular costo si está registrado
-                if item.cost is not None:
-                    item_cost = qty_to_charge * item.cost
-                    order_cost += item_cost
-                else:
+                # Calcular costo si está registrado (manejar caso donde columna no existe)
+                try:
+                    item_cost_value = getattr(item, 'cost', None)
+                    if item_cost_value is not None:
+                        item_cost = qty_to_charge * item_cost_value
+                        order_cost += item_cost
+                    else:
+                        has_cost_data = False
+                except Exception:
+                    # Si la columna no existe aún, no tiene datos de costo
                     has_cost_data = False
             
             # Calcular envío
