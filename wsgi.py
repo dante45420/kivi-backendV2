@@ -59,6 +59,9 @@ def create_app():
         # Crear tablas
         db.create_all()
         
+        # Ejecutar migraciones automáticamente
+        run_migrations()
+        
         # Inicializar datos de prueba si es desarrollo
         if app.config["FLASK_ENV"] == "development":
             init_dev_data()
@@ -67,7 +70,7 @@ def create_app():
         from app.api import (
             categories_bp, products_bp, customers_bp,
             orders_bp, payments_bp, purchases_bp, kivi_bp, content_bp,
-            weekly_offers_bp, auth_bp, images_bp
+            weekly_offers_bp, auth_bp, images_bp, kpis_bp
         )
         
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -81,6 +84,7 @@ def create_app():
         app.register_blueprint(content_bp, url_prefix="/api/content")
         app.register_blueprint(weekly_offers_bp, url_prefix="/api/weekly-offers")
         app.register_blueprint(images_bp, url_prefix="/api/images")
+        app.register_blueprint(kpis_bp)
     
     # Ruta de health check
     @app.route("/health")
@@ -98,6 +102,87 @@ def create_app():
         return send_from_directory(uploads_dir, filename)
     
     return app
+
+
+def run_migrations():
+    """Ejecuta migraciones de base de datos automáticamente"""
+    try:
+        db_url = str(db.engine.url)
+        
+        # Verificar si la columna 'cost' ya existe en order_items
+        # Intentar hacer una consulta que incluya la columna cost
+        try:
+            from sqlalchemy import text
+            result = db.session.execute(text("SELECT cost FROM order_items LIMIT 1"))
+            # Si no hay error, la columna ya existe
+            print("✅ Columna 'cost' ya existe en order_items")
+            return
+        except Exception:
+            # La columna no existe, agregarla
+            pass
+        
+        # Agregar columna cost si no existe
+        from sqlalchemy import text
+        
+        if 'postgresql' in db_url.lower():
+            # PostgreSQL: verificar primero si existe, luego agregar
+            try:
+                # Verificar si existe consultando information_schema
+                check_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='order_items' AND column_name='cost'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Columna 'cost' ya existe en order_items")
+                    return
+                
+                # No existe, agregarla
+                db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
+            except Exception as e:
+                db.session.rollback()
+                # Si falla, puede ser que ya exista
+                if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                    print("✅ Columna 'cost' ya existe en order_items")
+                else:
+                    print(f"⚠️  Error en migración PostgreSQL: {e}")
+        elif 'sqlite' in db_url.lower():
+            # SQLite: verificar si existe antes de agregar
+            try:
+                # SQLite no soporta IF NOT EXISTS en ALTER TABLE ADD COLUMN
+                # Intentar agregar directamente
+                db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
+            except Exception as e:
+                db.session.rollback()
+                # Si falla, probablemente ya existe
+                error_str = str(e).lower()
+                if "duplicate column" in error_str or "already exists" in error_str:
+                    print("✅ Columna 'cost' ya existe en order_items")
+                else:
+                    print(f"⚠️  Error en migración SQLite: {e}")
+        else:
+            # Otra base de datos, intentar método genérico
+            try:
+                db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'cost' ya existe en order_items")
+                else:
+                    print(f"⚠️  Error en migración: {e}")
+    except Exception as e:
+        print(f"⚠️  Error ejecutando migraciones: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def init_dev_data():

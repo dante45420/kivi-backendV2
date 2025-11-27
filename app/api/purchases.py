@@ -13,7 +13,10 @@ bp = Blueprint("purchases", __name__, url_prefix="/api/purchases")
 @bp.route("", methods=["POST"])
 def create_purchase():
     """
-    Crear una compra de producto y actualizar precio base + conversión
+    Registrar una compra de producto
+    - Registra la conversión cuando corresponda
+    - Registra el precio del producto (en unidad correspondiente o monto total pagado)
+    - Actualiza el costo en OrderItems relacionados
     """
     data = request.json
     
@@ -25,82 +28,76 @@ def create_purchase():
     if not product:
         return jsonify({"error": "Producto no encontrado"}), 404
     
-    qty = data.get("qty")
-    unit = data.get("unit")
-    price_total = data.get("price_total")
+    # Datos básicos de la compra
+    qty = float(data.get("qty", 0))
+    unit = data.get("unit", "kg")
+    price_total = float(data.get("price_total", 0))
+    
+    if not qty or not price_total:
+        return jsonify({"error": "qty y price_total son requeridos"}), 400
+    
+    # Precio por unidad (opcional, se puede calcular)
     price_per_unit = data.get("price_per_unit")
+    if price_per_unit:
+        price_per_unit = float(price_per_unit)
+    else:
+        price_per_unit = price_total / qty
     
-    if not all([qty, unit, price_total, price_per_unit]):
-        return jsonify({"error": "Faltan datos requeridos"}), 400
+    # Conversión (opcional)
+    conversion_qty = data.get("conversion_qty")
+    conversion_unit = data.get("conversion_unit")
+    if conversion_qty:
+        conversion_qty = float(conversion_qty)
     
-    # Obtener price_per_charged_unit si está disponible
+    # Precio por unidad de cobro (opcional, si se proporciona directamente)
     price_per_charged_unit = data.get("price_per_charged_unit")
     if price_per_charged_unit:
         price_per_charged_unit = float(price_per_charged_unit)
-    else:
-        price_per_charged_unit = None
     
     # Crear registro de compra
     purchase = Purchase(
         product_id=product_id,
-        qty=float(qty),
+        qty=qty,
         unit=unit,
-        price_total=float(price_total),
-        price_per_unit=float(price_per_unit),
+        price_total=price_total,
+        price_per_unit=price_per_unit,
         price_per_charged_unit=price_per_charged_unit,
-        conversion_qty=float(data.get("conversion_qty")) if data.get("conversion_qty") else None,
-        conversion_unit=data.get("conversion_unit"),
+        conversion_qty=conversion_qty,
+        conversion_unit=conversion_unit,
         notes=data.get("notes")
     )
     db.session.add(purchase)
     
-    # Calcular el precio de compra en la unidad del producto (unidad de cobro)
+    # Calcular precio en unidad de cobro (unidad del producto)
     # Si se proporcionó price_per_charged_unit, usarlo directamente
     if price_per_charged_unit:
-        price_in_product_unit = price_per_charged_unit
-    elif purchase.conversion_qty and purchase.conversion_unit:
-        # Si hay conversión, convertir el precio a la unidad del producto
-        if unit != product.unit:
-            # El precio debe estar en la unidad del producto
-            if unit == "unit" and product.unit == "kg":
-                # Se compró en unidades, pero el producto es en kg
-                # Precio por kg = precio_total / conversion_qty (kg cobrados)
-                price_in_product_unit = float(price_total) / purchase.conversion_qty
-            elif unit == "kg" and product.unit == "unit":
-                # Se compró en kg, pero el producto es en unidades
-                # Precio por unidad = precio_total / conversion_qty (unidades cobradas)
-                price_in_product_unit = float(price_total) / purchase.conversion_qty
-            else:
-                # Misma unidad, usar precio_per_unit directamente
-                price_in_product_unit = float(price_per_unit)
-        else:
-            # Misma unidad, usar precio_per_unit directamente
-            price_in_product_unit = float(price_per_unit)
+        cost_per_charged_unit = price_per_charged_unit
+    elif conversion_qty and conversion_unit:
+        # Hay conversión: precio_total / cantidad en unidad de cobro
+        cost_per_charged_unit = price_total / conversion_qty
     else:
-        # No hay conversión, usar precio_per_unit directamente
-        price_in_product_unit = float(price_per_unit)
+        # Sin conversión: usar precio por unidad
+        cost_per_charged_unit = price_per_unit
     
-    # Actualizar precio de compra del producto en su unidad
-    product.purchase_price = price_in_product_unit
+    # Actualizar precio de compra del producto
+    product.purchase_price = cost_per_charged_unit
     
-    # Si hay conversión, actualizar avg_units_per_kg
-    if purchase.conversion_qty and purchase.conversion_unit:
-        # Calcular conversión
-        if unit == "unit" and purchase.conversion_unit == "kg":
+    # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión a OrderItems
+    if conversion_qty and conversion_unit:
+        # Calcular conversión para el producto
+        if unit == "unit" and conversion_unit == "kg":
             # X unidades = Y kg → avg_units_per_kg = X / Y
-            product.avg_units_per_kg = qty / purchase.conversion_qty
-        elif unit == "kg" and purchase.conversion_unit == "unit":
+            product.avg_units_per_kg = qty / conversion_qty
+        elif unit == "kg" and conversion_unit == "unit":
             # X kg = Y unidades → avg_units_per_kg = Y / X
-            product.avg_units_per_kg = purchase.conversion_qty / qty
+            product.avg_units_per_kg = conversion_qty / qty
         
-        # Actualizar todos los OrderItems existentes con este producto
-        # para aplicar la conversión
+        # Actualizar OrderItems existentes: aplicar conversión y registrar costo
         order_items = OrderItem.query.filter_by(product_id=product_id).all()
+        charged_unit = conversion_unit
+        
         for item in order_items:
-            # Determinar la unidad de cobro (usar la de la compra o el default del producto)
-            charged_unit = purchase.conversion_unit
-            
-            # Calcular charged_qty basado en la conversión
+            # Aplicar conversión si es necesario
             if item.unit == charged_unit:
                 # No hay conversión necesaria
                 item.charged_qty = item.qty
@@ -115,14 +112,18 @@ def create_purchase():
                 if product.avg_units_per_kg and product.avg_units_per_kg > 0:
                     item.charged_qty = item.qty * product.avg_units_per_kg
                     item.charged_unit = charged_unit
+            
+            # Registrar el costo en la unidad de cobro (solo si no tiene costo ya)
+            if item.cost is None:
+                item.cost = cost_per_charged_unit
         
-        print(f"✅ Actualizado {len(order_items)} items con conversión para producto #{product_id}")
+        print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
     
-    # Crear historial de precio (usar el precio en la unidad del producto)
+    # Crear historial de precio
     price_history = PriceHistory(
         product_id=product_id,
-        purchase_price=price_in_product_unit,
-        notes=f"Compra registrada: {qty} {unit} por ${price_total} (precio en {product.unit}: ${price_in_product_unit:.2f})"
+        purchase_price=cost_per_charged_unit,
+        notes=f"Compra registrada: {qty} {unit} por ${price_total} (precio en {product.unit}: ${cost_per_charged_unit:.2f})"
     )
     db.session.add(price_history)
     

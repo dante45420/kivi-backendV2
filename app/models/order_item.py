@@ -22,6 +22,9 @@ class OrderItem(db.Model):
     charged_qty = db.Column(db.Float, nullable=True)
     charged_unit = db.Column(db.String(16), nullable=True)
     
+    # Costo del producto (en unidad de cobro, registrado al momento de la compra)
+    cost = db.Column(db.Float, nullable=True)
+    
     # Estado de pago
     paid = db.Column(db.Boolean, default=False)
     
@@ -59,6 +62,7 @@ class OrderItem(db.Model):
             "unit": self.unit,
             "charged_qty": self.charged_qty,
             "charged_unit": self.charged_unit,
+            "cost": self.cost,
             "unit_price": self.unit_price or effective_price,
             "paid": self.paid,  # Deprecated, pero se mantiene por compatibilidad
             "notes": self.notes,
