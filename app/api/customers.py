@@ -102,104 +102,151 @@ def get_customer_debt(id):
     Calcula la deuda total del cliente
     Considera: pedidos finalizados con conversiones, ofertas y envío
     """
-    from ..models import Order
-    from ..utils.shipping import calculate_shipping
-    
-    customer = Customer.query.get_or_404(id)
-    
-    # Obtener todos los pedidos finalizados del cliente (completed, emitted, o finalized)
-    # Incluir 'finalized' temporalmente para recuperar pedidos con estado incorrecto
-    # Incluir ambos estados para ver pedidos completados y emitidos en contabilidad
-    finalized_orders = Order.query.filter(
-        Order.status.in_(['completed', 'emitted', 'finalized'])
-    ).all()
-    
-    # Corregir pedidos con estado 'finalized' a 'completed' automáticamente
-    needs_commit = False
-    for order in finalized_orders:
-        if order.status == 'finalized':
-            order.status = 'completed'
-            if not order.completed_at:
-                order.completed_at = datetime.utcnow()
-            needs_commit = True
-    
-    # Guardar correcciones si hubo alguna
-    if needs_commit:
-        db.session.commit()
-    
-    total_debt = 0
-    orders_detail = []
-    
-    for order in finalized_orders:
-        # Obtener items del cliente en este pedido
-        customer_items = [item for item in order.items if item.customer_id == id]
+    try:
+        from ..models import Order
+        from ..utils.shipping import calculate_shipping
         
-        if not customer_items:
-            continue
+        customer = Customer.query.get_or_404(id)
         
-        # Calcular subtotal del pedido para este cliente
-        order_subtotal = 0
-        items_detail = []
+        # Obtener pedidos finalizados que tienen items de este cliente
+        # Usar join para filtrar eficientemente desde la base de datos
+        from sqlalchemy.orm import joinedload
+        finalized_orders = Order.query.join(
+            OrderItem, Order.id == OrderItem.order_id
+        ).options(
+            joinedload(Order.items).joinedload(OrderItem.product)
+        ).filter(
+            OrderItem.customer_id == id,
+            Order.status.in_(['completed', 'emitted', 'finalized'])
+        ).distinct().all()
         
-        for item in customer_items:
-            # Usar charged_qty solo si el pedido está completed y existe conversión
-            # Si está emitted, usar qty original (aún no se ha registrado la compra)
-            if order.status == 'completed' and item.charged_qty is not None:
-                qty_to_charge = item.charged_qty
-            else:
-                qty_to_charge = item.qty
-            
-            # Usar unit_price (ya incluye ofertas si se aplicaron), sino precio del producto
-            unit_price = item.unit_price
-            if not unit_price and item.product:
-                unit_price = item.product.sale_price or 0
-            
-            item_total = round(qty_to_charge * (unit_price or 0))
-            order_subtotal += item_total
-            
-            items_detail.append({
-                "item_id": item.id,
-                "product_name": item.product.name if item.product else "Producto desconocido",
-                "qty": item.qty,
-                "unit": item.unit,
-                "charged_qty": item.charged_qty,
-                "charged_unit": item.charged_unit,
-                "unit_price": unit_price,
-                "total": item_total
-            })
+        # Corregir pedidos con estado 'finalized' a 'completed' automáticamente
+        needs_commit = False
+        for order in finalized_orders:
+            if order.status == 'finalized':
+                order.status = 'completed'
+                if not order.completed_at:
+                    order.completed_at = datetime.utcnow()
+                needs_commit = True
         
-        # Calcular envío para este pedido
-        shipping_amount = calculate_shipping(order.shipping_type, order_subtotal)
-        order_total = order_subtotal + shipping_amount
+        # Guardar correcciones si hubo alguna
+        if needs_commit:
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error al corregir estados de pedidos: {e}")
         
-        total_debt += order_total
+        total_debt = 0
+        orders_detail = []
         
-        orders_detail.append({
-            "order_id": order.id,
-            "order_date": order.created_at.isoformat() if order.created_at else None,
-            "order_status": order.status,  # Agregar estado del pedido
-            "shipping_type": order.shipping_type,
-            "subtotal": order_subtotal,
-            "shipping_amount": shipping_amount,
-            "total": order_total,
-            "items": items_detail
+        for order in finalized_orders:
+            try:
+                # Obtener items del cliente en este pedido
+                customer_items = [item for item in order.items if item.customer_id == id]
+                
+                if not customer_items:
+                    continue
+                
+                # Calcular subtotal del pedido para este cliente
+                order_subtotal = 0
+                items_detail = []
+                
+                for item in customer_items:
+                    try:
+                        # Validar que qty y charged_qty sean números válidos
+                        qty = float(item.qty) if item.qty is not None else 0
+                        charged_qty = float(item.charged_qty) if item.charged_qty is not None else None
+                        
+                        # Usar charged_qty solo si el pedido está completed y existe conversión
+                        # Si está emitted, usar qty original (aún no se ha registrado la compra)
+                        if order.status == 'completed' and charged_qty is not None:
+                            qty_to_charge = charged_qty
+                        else:
+                            qty_to_charge = qty
+                        
+                        # Usar unit_price (ya incluye ofertas si se aplicaron), sino precio del producto
+                        unit_price = item.unit_price
+                        if not unit_price or unit_price == 0:
+                            if item.product:
+                                unit_price = item.product.sale_price or 0
+                            else:
+                                unit_price = 0
+                        
+                        # Validar que unit_price sea un número válido
+                        unit_price = float(unit_price) if unit_price is not None else 0
+                        
+                        item_total = round(qty_to_charge * unit_price)
+                        order_subtotal += item_total
+                        
+                        items_detail.append({
+                            "item_id": item.id,
+                            "product_name": item.product.name if item.product and item.product.name else "Producto desconocido",
+                            "qty": qty,
+                            "unit": item.unit or "kg",
+                            "charged_qty": charged_qty,
+                            "charged_unit": item.charged_unit,
+                            "unit_price": unit_price,
+                            "total": item_total
+                        })
+                    except Exception as e:
+                        print(f"Error procesando item {item.id}: {e}")
+                        # Continuar con el siguiente item
+                        continue
+                
+                # Calcular envío para este pedido
+                try:
+                    shipping_amount = calculate_shipping(order.shipping_type, order_subtotal)
+                except Exception as e:
+                    print(f"Error calculando shipping para pedido {order.id}: {e}")
+                    shipping_amount = 0
+                
+                order_total = order_subtotal + shipping_amount
+                total_debt += order_total
+                
+                orders_detail.append({
+                    "order_id": order.id,
+                    "order_date": order.created_at.isoformat() if order.created_at else None,
+                    "order_status": order.status or "unknown",
+                    "shipping_type": order.shipping_type,
+                    "subtotal": order_subtotal,
+                    "shipping_amount": shipping_amount,
+                    "total": order_total,
+                    "items": items_detail
+                })
+            except Exception as e:
+                print(f"Error procesando pedido {order.id}: {e}")
+                # Continuar con el siguiente pedido
+                continue
+        
+        # Obtener pagos totales del cliente
+        try:
+            payments = Payment.query.filter_by(customer_id=id).all()
+            total_paid = sum(float(p.amount) if p.amount is not None else 0 for p in payments)
+        except Exception as e:
+            print(f"Error obteniendo pagos del cliente {id}: {e}")
+            total_paid = 0
+        
+        # Deuda pendiente
+        pending_debt = total_debt - total_paid
+        
+        return jsonify({
+            "customer": customer.to_dict(),
+            "total_debt": round(total_debt),
+            "total_paid": round(total_paid),
+            "pending_debt": round(pending_debt),
+            "orders": orders_detail,
+            "orders_count": len(orders_detail)
         })
-    
-    # Obtener pagos totales del cliente
-    payments = Payment.query.filter_by(customer_id=id).all()
-    total_paid = sum(p.amount for p in payments)
-    
-    # Deuda pendiente
-    pending_debt = total_debt - total_paid
-    
-    return jsonify({
-        "customer": customer.to_dict(),
-        "total_debt": round(total_debt),
-        "total_paid": round(total_paid),
-        "pending_debt": round(pending_debt),
-        "orders": orders_detail,
-        "orders_count": len(orders_detail)
-    })
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Error en get_customer_debt para cliente {id}: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error al calcular deuda del cliente: {str(e)}",
+            "customer_id": id
+        }), 500
 
 
 @bp.route("/<int:id>/balance", methods=["GET"])
