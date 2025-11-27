@@ -38,18 +38,41 @@ def get_orders():
 @bp.route("/<int:id>", methods=["GET"])
 def get_order(id):
     """Obtiene un pedido con todos sus items"""
+    from ..utils.shipping import calculate_shipping
+    
     order = Order.query.get_or_404(id)
     
     order_dict = order.to_dict()
     order_dict["items"] = [item.to_dict() for item in order.items]
     order_dict["expenses"] = [exp.to_dict() for exp in order.expenses]
     
-    # Calcular totales
-    subtotal = sum(item.qty * (item.unit_price or 0) for item in order.items)
+    # Calcular subtotal usando charged_qty si existe (para conversiones)
+    # Usar la misma lógica que get_customer_debt
+    subtotal = 0
+    for item in order.items:
+        # Usar charged_qty solo si el pedido está completed y existe conversión
+        if order.status == 'completed' and item.charged_qty is not None:
+            qty_to_charge = item.charged_qty
+        else:
+            qty_to_charge = item.qty
+        
+        # Usar unit_price del item, o el sale_price del producto si no existe
+        unit_price = item.unit_price
+        if not unit_price and item.product:
+            unit_price = item.product.sale_price or 0
+        
+        item_total = round(qty_to_charge * (unit_price or 0))
+        subtotal += item_total
+    
+    # Calcular envío
+    shipping_amount = calculate_shipping(order.shipping_type, subtotal)
+    
+    # Calcular total: subtotal + shipping + expenses
     expenses_total = sum(exp.amount for exp in order.expenses)
-    total = subtotal + expenses_total
+    total = subtotal + shipping_amount + expenses_total
     
     order_dict["subtotal"] = round(subtotal)
+    order_dict["shipping_amount"] = shipping_amount
     order_dict["expenses_total"] = expenses_total
     order_dict["total"] = round(total)
     
