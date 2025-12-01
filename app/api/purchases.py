@@ -18,190 +18,199 @@ def create_purchase():
     - Registra el precio del producto (en unidad correspondiente o monto total pagado)
     - Actualiza el costo en OrderItems relacionados
     """
-    data = request.json
-    
-    product_id = data.get("product_id")
-    if not product_id:
-        return jsonify({"error": "product_id es requerido"}), 400
-    
-    product = Product.query.get(product_id)
-    if not product:
-        return jsonify({"error": "Producto no encontrado"}), 404
-    
-    # Datos básicos de la compra
-    qty = float(data.get("qty", 0))
-    unit = data.get("unit", "kg")
-    price_total = float(data.get("price_total", 0))
-    
-    if not qty or not price_total:
-        return jsonify({"error": "qty y price_total son requeridos"}), 400
-    
-    # Precio por unidad (opcional, se puede calcular)
-    price_per_unit = data.get("price_per_unit")
-    if price_per_unit:
-        price_per_unit = float(price_per_unit)
-    else:
-        price_per_unit = price_total / qty
-    
-    # Conversión (opcional)
-    conversion_qty = data.get("conversion_qty")
-    conversion_unit = data.get("conversion_unit")
-    if conversion_qty:
-        conversion_qty = float(conversion_qty)
-    
-    # Precio por unidad de cobro (opcional, si se proporciona directamente)
-    price_per_charged_unit = data.get("price_per_charged_unit")
-    if price_per_charged_unit:
-        price_per_charged_unit = float(price_per_charged_unit)
-    
-    # Crear registro de compra
-    purchase = Purchase(
-        product_id=product_id,
-        qty=qty,
-        unit=unit,
-        price_total=price_total,
-        price_per_unit=price_per_unit,
-        price_per_charged_unit=price_per_charged_unit,
-        conversion_qty=conversion_qty,
-        conversion_unit=conversion_unit,
-        notes=data.get("notes")
-    )
-    db.session.add(purchase)
-    
-    # Calcular precio en unidad de cobro (unidad del producto)
-    # Si se proporcionó price_per_charged_unit, usarlo directamente
-    if price_per_charged_unit:
-        cost_per_charged_unit = price_per_charged_unit
-    elif conversion_qty and conversion_unit:
-        # Hay conversión: precio_total / cantidad en unidad de cobro
-        cost_per_charged_unit = price_total / conversion_qty
-    else:
-        # Sin conversión: usar precio por unidad
-        cost_per_charged_unit = price_per_unit
-    
-    # Actualizar precio de compra del producto
-    product.purchase_price = cost_per_charged_unit
-    
-    # Actualizar OrderItems existentes: aplicar conversión y registrar costo
-    order_items = OrderItem.query.filter_by(product_id=product_id).all()
-    
-    # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión
-    if conversion_qty and conversion_unit:
-        # Calcular conversión para el producto
-        if unit == "unit" and conversion_unit == "kg":
-            # X unidades = Y kg → avg_units_per_kg = X / Y
-            product.avg_units_per_kg = qty / conversion_qty
-        elif unit == "kg" and conversion_unit == "unit":
-            # X kg = Y unidades → avg_units_per_kg = Y / X
-            product.avg_units_per_kg = conversion_qty / qty
+    try:
+        data = request.json
         
-        charged_unit = conversion_unit
+        product_id = data.get("product_id")
+        if not product_id:
+            return jsonify({"error": "product_id es requerido"}), 400
         
-        for item in order_items:
-            # Aplicar conversión si es necesario
-            if item.unit == charged_unit:
-                # No hay conversión necesaria
-                item.charged_qty = item.qty
-                item.charged_unit = charged_unit
-            elif item.unit == "unit" and charged_unit == "kg":
-                # Item en unidades, se cobra en kg
-                if product.avg_units_per_kg and product.avg_units_per_kg > 0:
-                    item.charged_qty = item.qty / product.avg_units_per_kg
-                    item.charged_unit = charged_unit
-            elif item.unit == "kg" and charged_unit == "unit":
-                # Item en kg, se cobra en unidades
-                if product.avg_units_per_kg and product.avg_units_per_kg > 0:
-                    item.charged_qty = item.qty * product.avg_units_per_kg
-                    item.charged_unit = charged_unit
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({"error": "Producto no encontrado"}), 404
+        
+        # Datos básicos de la compra
+        qty = float(data.get("qty", 0))
+        unit = data.get("unit", "kg")
+        price_total = float(data.get("price_total", 0))
+        
+        if not qty or not price_total:
+            return jsonify({"error": "qty y price_total son requeridos"}), 400
+        
+        # Precio por unidad (opcional, se puede calcular)
+        price_per_unit = data.get("price_per_unit")
+        if price_per_unit:
+            price_per_unit = float(price_per_unit)
+        else:
+            price_per_unit = price_total / qty
+        
+        # Conversión (opcional)
+        conversion_qty = data.get("conversion_qty")
+        conversion_unit = data.get("conversion_unit")
+        if conversion_qty:
+            conversion_qty = float(conversion_qty)
+        
+        # Precio por unidad de cobro (opcional, si se proporciona directamente)
+        price_per_charged_unit = data.get("price_per_charged_unit")
+        if price_per_charged_unit:
+            price_per_charged_unit = float(price_per_charged_unit)
+        
+        # Crear registro de compra
+        purchase = Purchase(
+            product_id=product_id,
+            qty=qty,
+            unit=unit,
+            price_total=price_total,
+            price_per_unit=price_per_unit,
+            price_per_charged_unit=price_per_charged_unit,
+            conversion_qty=conversion_qty,
+            conversion_unit=conversion_unit,
+            notes=data.get("notes")
+        )
+        db.session.add(purchase)
+        
+        # Calcular precio en unidad de cobro (unidad del producto)
+        # Si se proporcionó price_per_charged_unit, usarlo directamente
+        if price_per_charged_unit:
+            cost_per_charged_unit = price_per_charged_unit
+        elif conversion_qty and conversion_unit:
+            # Hay conversión: precio_total / cantidad en unidad de cobro
+            cost_per_charged_unit = price_total / conversion_qty
+        else:
+            # Sin conversión: usar precio por unidad
+            cost_per_charged_unit = price_per_unit
+        
+        # Actualizar precio de compra del producto
+        product.purchase_price = cost_per_charged_unit
+        
+        # Actualizar OrderItems existentes: aplicar conversión y registrar costo
+        order_items = OrderItem.query.filter_by(product_id=product_id).all()
+        
+        # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión
+        if conversion_qty and conversion_unit:
+            # Calcular conversión para el producto
+            if unit == "unit" and conversion_unit == "kg":
+                # X unidades = Y kg → avg_units_per_kg = X / Y
+                product.avg_units_per_kg = qty / conversion_qty
+            elif unit == "kg" and conversion_unit == "unit":
+                # X kg = Y unidades → avg_units_per_kg = Y / X
+                product.avg_units_per_kg = conversion_qty / qty
             
-            # Actualizar el costo en la unidad de cobro (SIEMPRE actualizar, no solo si es None)
-            # Manejar caso donde la columna puede no existir aún
-            try:
-                item.cost = cost_per_charged_unit
-            except Exception:
-                # Si la columna no existe, intentar asignarla (puede fallar si la migración no se ejecutó)
-                try:
-                    setattr(item, 'cost', cost_per_charged_unit)
-                except Exception as e:
-                    print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
-        
-        print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
-    else:
-        # Sin conversión: actualizar costos de TODOS los items del producto
-        # El costo está en la unidad de la compra (unit), que debería ser igual a product.unit
-        items_updated = 0
-        for item in order_items:
-            # Actualizar costo de todos los items, independientemente de su unidad
-            # porque el costo se calcula en la unidad de cobro del producto
-            try:
-                item.cost = cost_per_charged_unit
-                # Si no hay conversión, charged_qty debe ser igual a qty
-                if item.charged_qty is None:
+            charged_unit = conversion_unit
+            
+            for item in order_items:
+                # Aplicar conversión si es necesario
+                if item.unit == charged_unit:
+                    # No hay conversión necesaria
                     item.charged_qty = item.qty
-                    item.charged_unit = item.unit
-                items_updated += 1
-            except Exception:
+                    item.charged_unit = charged_unit
+                elif item.unit == "unit" and charged_unit == "kg":
+                    # Item en unidades, se cobra en kg
+                    if product.avg_units_per_kg and product.avg_units_per_kg > 0:
+                        item.charged_qty = item.qty / product.avg_units_per_kg
+                        item.charged_unit = charged_unit
+                elif item.unit == "kg" and charged_unit == "unit":
+                    # Item en kg, se cobra en unidades
+                    if product.avg_units_per_kg and product.avg_units_per_kg > 0:
+                        item.charged_qty = item.qty * product.avg_units_per_kg
+                        item.charged_unit = charged_unit
+                
+                # Actualizar el costo en la unidad de cobro (SIEMPRE actualizar, no solo si es None)
+                # Manejar caso donde la columna puede no existir aún
                 try:
-                    setattr(item, 'cost', cost_per_charged_unit)
+                    item.cost = cost_per_charged_unit
+                except Exception:
+                    # Si la columna no existe, intentar asignarla (puede fallar si la migración no se ejecutó)
+                    try:
+                        setattr(item, 'cost', cost_per_charged_unit)
+                    except Exception as e:
+                        print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
+            
+            print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
+        else:
+            # Sin conversión: actualizar costos de TODOS los items del producto
+            # El costo está en la unidad de la compra (unit), que debería ser igual a product.unit
+            items_updated = 0
+            for item in order_items:
+                # Actualizar costo de todos los items, independientemente de su unidad
+                # porque el costo se calcula en la unidad de cobro del producto
+                try:
+                    item.cost = cost_per_charged_unit
+                    # Si no hay conversión, charged_qty debe ser igual a qty
                     if item.charged_qty is None:
                         item.charged_qty = item.qty
                         item.charged_unit = item.unit
                     items_updated += 1
-                except Exception as e:
-                    print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
-        
-        print(f"✅ Actualizado {items_updated} items con costo para producto #{product_id} (sin conversión)")
-    
-    # Crear historial de precio
-    price_history = PriceHistory(
-        product_id=product_id,
-        purchase_price=cost_per_charged_unit,
-        notes=f"Compra registrada: {qty} {unit} por ${price_total} (precio en {product.unit}: ${cost_per_charged_unit:.2f})"
-    )
-    db.session.add(price_history)
-    
-    # Hacer flush para que los cambios de costos estén disponibles antes de verificar pedidos
-    db.session.flush()
-    
-    # Buscar pedidos emitidos con este producto y cambiar status a completed
-    emitted_orders = Order.query.filter_by(status="emitted").all()
-    orders_completed = []
-    
-    print(f"🔍 Verificando {len(emitted_orders)} pedidos emitidos para producto #{product_id}")
-    
-    for order in emitted_orders:
-        # Verificar si tiene items con este producto
-        has_product = any(
-            item.product_id == product_id
-            for item in order.items
-        )
-        if has_product:
-            print(f"  📦 Pedido #{order.id} tiene items con producto #{product_id} ({len(order.items)} items total)")
-            # Verificar si todos los items del pedido tienen costo registrado
-            # Esto es más preciso que solo verificar purchase_price del producto
-            all_purchased = True
-            items_without_cost = []
-            items_with_cost = []
-            
-            for item in order.items:
-                # Refrescar el item para obtener los últimos cambios de la sesión
-                try:
-                    db.session.refresh(item)
                 except Exception:
-                    # Si no se puede refrescar, continuar con el item tal como está
-                    pass
+                    try:
+                        setattr(item, 'cost', cost_per_charged_unit)
+                        if item.charged_qty is None:
+                            item.charged_qty = item.qty
+                            item.charged_unit = item.unit
+                        items_updated += 1
+                    except Exception as e:
+                        print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
+            
+            print(f"✅ Actualizado {items_updated} items con costo para producto #{product_id} (sin conversión)")
+        
+        # Crear historial de precio
+        price_history = PriceHistory(
+            product_id=product_id,
+            purchase_price=cost_per_charged_unit,
+            notes=f"Compra registrada: {qty} {unit} por ${price_total} (precio en {product.unit}: ${cost_per_charged_unit:.2f})"
+        )
+        db.session.add(price_history)
+        
+        # Hacer flush para que los cambios de costos estén disponibles antes de verificar pedidos
+        db.session.flush()
+        
+        # Buscar pedidos emitidos con este producto y cambiar status a completed
+        emitted_orders = Order.query.filter_by(status="emitted").all()
+        orders_completed = []
+        
+        print(f"🔍 Verificando {len(emitted_orders)} pedidos emitidos para producto #{product_id}")
+        
+        for order in emitted_orders:
+            # Verificar si tiene items con este producto
+            has_product = any(
+                item.product_id == product_id
+                for item in order.items
+            )
+            if has_product:
+                print(f"  📦 Pedido #{order.id} tiene items con producto #{product_id} ({len(order.items)} items total)")
+                # Verificar si todos los items del pedido tienen costo registrado
+                # Esto es más preciso que solo verificar purchase_price del producto
+                all_purchased = True
+                items_without_cost = []
+                items_with_cost = []
                 
-                # Verificar que el item tenga costo asignado
-                try:
-                    item_cost = getattr(item, 'cost', None)
-                    if item_cost is not None:
-                        items_with_cost.append({
-                            'item_id': item.id,
-                            'product_id': item.product_id,
-                            'cost': item_cost
-                        })
-                    else:
-                        # Si no tiene costo, verificar si el producto tiene purchase_price
+                for item in order.items:
+                    # Verificar que el item tenga costo asignado
+                    # No necesitamos refresh porque los items ya están en la sesión después del flush
+                    try:
+                        item_cost = getattr(item, 'cost', None)
+                        if item_cost is not None:
+                            items_with_cost.append({
+                                'item_id': item.id,
+                                'product_id': item.product_id,
+                                'cost': item_cost
+                            })
+                        else:
+                            # Si no tiene costo, verificar si el producto tiene purchase_price
+                            item_product = Product.query.get(item.product_id)
+                            if not item_product or not item_product.purchase_price:
+                                all_purchased = False
+                                items_without_cost.append({
+                                    'item_id': item.id,
+                                    'product_id': item.product_id,
+                                    'product_name': item_product.name if item_product else 'Desconocido',
+                                    'has_purchase_price': item_product.purchase_price if item_product else None
+                                })
+                    except Exception as e:
+                        # Si hay error accediendo a cost, verificar purchase_price como fallback
+                        print(f"⚠️  Error verificando costo del item {item.id}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         item_product = Product.query.get(item.product_id)
                         if not item_product or not item_product.purchase_price:
                             all_purchased = False
@@ -209,42 +218,41 @@ def create_purchase():
                                 'item_id': item.id,
                                 'product_id': item.product_id,
                                 'product_name': item_product.name if item_product else 'Desconocido',
-                                'has_purchase_price': item_product.purchase_price if item_product else None
+                                'error': str(e)
                             })
-                except Exception as e:
-                    # Si hay error accediendo a cost, verificar purchase_price como fallback
-                    print(f"⚠️  Error verificando costo del item {item.id}: {e}")
-                    item_product = Product.query.get(item.product_id)
-                    if not item_product or not item_product.purchase_price:
-                        all_purchased = False
-                        items_without_cost.append({
-                            'item_id': item.id,
-                            'product_id': item.product_id,
-                            'product_name': item_product.name if item_product else 'Desconocido',
-                            'error': str(e)
-                        })
-            
-            print(f"    Items con costo: {len(items_with_cost)}, Items sin costo: {len(items_without_cost)}")
-            
-            # Si todos tienen costo/precio, marcar el pedido como completado
-            if all_purchased:
-                order.status = "completed"
-                order.completed_at = datetime.utcnow()
-                orders_completed.append(order.id)
-                print(f"✅ Pedido #{order.id} marcado como completado")
-            else:
-                print(f"⚠️  Pedido #{order.id} NO completado - Items sin costo: {items_without_cost}")
+                
+                print(f"    Items con costo: {len(items_with_cost)}, Items sin costo: {len(items_without_cost)}")
+                
+                # Si todos tienen costo/precio, marcar el pedido como completado
+                if all_purchased:
+                    order.status = "completed"
+                    order.completed_at = datetime.utcnow()
+                    orders_completed.append(order.id)
+                    print(f"✅ Pedido #{order.id} marcado como completado")
+                else:
+                    print(f"⚠️  Pedido #{order.id} NO completado - Items sin costo: {items_without_cost}")
+        
+        # Commit todos los cambios
+        db.session.commit()
+        
+        if orders_completed:
+            print(f"✅ Total de pedidos completados: {len(orders_completed)} - IDs: {orders_completed}")
+        
+        return jsonify({
+            "message": "Compra registrada exitosamente",
+            "purchase": purchase.to_dict()
+        }), 201
     
-    # Commit todos los cambios
-    db.session.commit()
-    
-    if orders_completed:
-        print(f"✅ Total de pedidos completados: {len(orders_completed)} - IDs: {orders_completed}")
-    
-    return jsonify({
-        "message": "Compra registrada exitosamente",
-        "purchase": purchase.to_dict()
-    }), 201
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error registrando compra: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error al registrar compra: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
+        }), 500
 
 
 @bp.route("", methods=["GET"])
