@@ -144,3 +144,97 @@ def get_kpis():
         traceback.print_exc()
         return jsonify({"error": f"Error calculando KPIs: {str(e)}"}), 500
 
+
+@bp.route("/utility-details", methods=["GET"])
+def get_utility_details():
+    """
+    Obtiene detalles de utilidad de todos los pedidos con costo registrado
+    Para verificar cálculos en el frontend
+    """
+    try:
+        all_orders = Order.query.filter(
+            Order.status.in_(['completed', 'emitted'])
+        ).all()
+        
+        orders_details = []
+        
+        for order in all_orders:
+            order_subtotal = 0
+            order_cost = 0
+            has_cost_data = True
+            items_detail = []
+            
+            for item in order.items:
+                # Usar charged_qty siempre que exista
+                if item.charged_qty is not None:
+                    qty_to_charge = item.charged_qty
+                else:
+                    qty_to_charge = item.qty
+                
+                # Precio de venta
+                unit_price = item.unit_price
+                if not unit_price and item.product:
+                    unit_price = item.product.sale_price or 0
+                
+                item_revenue = round(qty_to_charge * (unit_price or 0))
+                order_subtotal += item_revenue
+                
+                # Costo
+                try:
+                    item_cost_value = getattr(item, 'cost', None)
+                    if item_cost_value is not None:
+                        item_cost = qty_to_charge * item_cost_value
+                        order_cost += item_cost
+                        
+                        items_detail.append({
+                            'product_name': item.product.name if item.product else 'Producto desconocido',
+                            'qty': item.qty,
+                            'unit': item.unit,
+                            'charged_qty': item.charged_qty,
+                            'charged_unit': item.charged_unit,
+                            'unit_price': unit_price,
+                            'cost': item_cost_value,
+                            'item_revenue': item_revenue,
+                            'item_cost': item_cost,
+                            'item_utility': item_revenue - item_cost,
+                            'item_utility_percent': ((item_revenue - item_cost) / item_revenue * 100) if item_revenue > 0 else 0
+                        })
+                    else:
+                        has_cost_data = False
+                except Exception:
+                    has_cost_data = False
+            
+            # Calcular envío
+            shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
+            order_total = order_subtotal + shipping_amount
+            
+            # Solo incluir pedidos con costo registrado y monto > 0
+            if has_cost_data and order_cost > 0 and order_total > 0:
+                utility_amount = order_total - order_cost
+                utility_percent = (utility_amount / order_total) * 100 if order_total > 0 else 0
+                
+                orders_details.append({
+                    'order_id': order.id,
+                    'order_date': order.created_at.isoformat() if order.created_at else None,
+                    'status': order.status,
+                    'items': items_detail,
+                    'subtotal': order_subtotal,
+                    'shipping_amount': shipping_amount,
+                    'order_total': order_total,
+                    'order_cost': order_cost,
+                    'utility_amount': utility_amount,
+                    'utility_percent': utility_percent
+                })
+        
+        # Ordenar por fecha más reciente primero
+        orders_details.sort(key=lambda x: x['order_date'] or '', reverse=True)
+        
+        return jsonify({
+            'total_orders': len(orders_details),
+            'orders': orders_details
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error obteniendo detalles de utilidad: {str(e)}"}), 500
+
