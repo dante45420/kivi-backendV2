@@ -127,28 +127,30 @@ def create_purchase():
         
         print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
     else:
-        # Sin conversión: actualizar costos de todos los items del producto
+        # Sin conversión: actualizar costos de TODOS los items del producto
         # El costo está en la unidad de la compra (unit), que debería ser igual a product.unit
+        items_updated = 0
         for item in order_items:
-            # Actualizar costo si el item está en la misma unidad que la compra
-            # o si está en la unidad del producto (que debería ser la misma)
-            if item.unit == unit or item.unit == product.unit:
+            # Actualizar costo de todos los items, independientemente de su unidad
+            # porque el costo se calcula en la unidad de cobro del producto
+            try:
+                item.cost = cost_per_charged_unit
+                # Si no hay conversión, charged_qty debe ser igual a qty
+                if item.charged_qty is None:
+                    item.charged_qty = item.qty
+                    item.charged_unit = item.unit
+                items_updated += 1
+            except Exception:
                 try:
-                    item.cost = cost_per_charged_unit
-                    # Si no hay conversión, charged_qty debe ser igual a qty
+                    setattr(item, 'cost', cost_per_charged_unit)
                     if item.charged_qty is None:
                         item.charged_qty = item.qty
                         item.charged_unit = item.unit
-                except Exception:
-                    try:
-                        setattr(item, 'cost', cost_per_charged_unit)
-                        if item.charged_qty is None:
-                            item.charged_qty = item.qty
-                            item.charged_unit = item.unit
-                    except Exception as e:
-                        print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
+                    items_updated += 1
+                except Exception as e:
+                    print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
         
-        print(f"✅ Actualizado items con costo para producto #{product_id} (sin conversión)")
+        print(f"✅ Actualizado {items_updated} items con costo para producto #{product_id} (sin conversión)")
     
     # Crear historial de precio
     price_history = PriceHistory(
@@ -158,8 +160,15 @@ def create_purchase():
     )
     db.session.add(price_history)
     
+    # Hacer flush para que los cambios de costos estén disponibles antes de verificar pedidos
+    db.session.flush()
+    
     # Buscar pedidos emitidos con este producto y cambiar status a completed
     emitted_orders = Order.query.filter_by(status="emitted").all()
+    orders_completed = []
+    
+    print(f"🔍 Verificando {len(emitted_orders)} pedidos emitidos para producto #{product_id}")
+    
     for order in emitted_orders:
         # Verificar si tiene items con este producto
         has_product = any(
@@ -167,33 +176,70 @@ def create_purchase():
             for item in order.items
         )
         if has_product:
+            print(f"  📦 Pedido #{order.id} tiene items con producto #{product_id} ({len(order.items)} items total)")
             # Verificar si todos los items del pedido tienen costo registrado
             # Esto es más preciso que solo verificar purchase_price del producto
             all_purchased = True
+            items_without_cost = []
+            items_with_cost = []
+            
             for item in order.items:
+                # Refrescar el item para obtener los últimos cambios de la sesión
+                try:
+                    db.session.refresh(item)
+                except Exception:
+                    # Si no se puede refrescar, continuar con el item tal como está
+                    pass
+                
                 # Verificar que el item tenga costo asignado
                 try:
                     item_cost = getattr(item, 'cost', None)
-                    if item_cost is None:
+                    if item_cost is not None:
+                        items_with_cost.append({
+                            'item_id': item.id,
+                            'product_id': item.product_id,
+                            'cost': item_cost
+                        })
+                    else:
                         # Si no tiene costo, verificar si el producto tiene purchase_price
                         item_product = Product.query.get(item.product_id)
                         if not item_product or not item_product.purchase_price:
                             all_purchased = False
-                            break
-                except Exception:
+                            items_without_cost.append({
+                                'item_id': item.id,
+                                'product_id': item.product_id,
+                                'product_name': item_product.name if item_product else 'Desconocido',
+                                'has_purchase_price': item_product.purchase_price if item_product else None
+                            })
+                except Exception as e:
                     # Si hay error accediendo a cost, verificar purchase_price como fallback
+                    print(f"⚠️  Error verificando costo del item {item.id}: {e}")
                     item_product = Product.query.get(item.product_id)
                     if not item_product or not item_product.purchase_price:
                         all_purchased = False
-                        break
+                        items_without_cost.append({
+                            'item_id': item.id,
+                            'product_id': item.product_id,
+                            'product_name': item_product.name if item_product else 'Desconocido',
+                            'error': str(e)
+                        })
+            
+            print(f"    Items con costo: {len(items_with_cost)}, Items sin costo: {len(items_without_cost)}")
             
             # Si todos tienen costo/precio, marcar el pedido como completado
             if all_purchased:
                 order.status = "completed"
                 order.completed_at = datetime.utcnow()
+                orders_completed.append(order.id)
                 print(f"✅ Pedido #{order.id} marcado como completado")
+            else:
+                print(f"⚠️  Pedido #{order.id} NO completado - Items sin costo: {items_without_cost}")
     
+    # Commit todos los cambios
     db.session.commit()
+    
+    if orders_completed:
+        print(f"✅ Total de pedidos completados: {len(orders_completed)} - IDs: {orders_completed}")
     
     return jsonify({
         "message": "Compra registrada exitosamente",
