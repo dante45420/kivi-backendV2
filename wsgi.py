@@ -113,6 +113,7 @@ def run_migrations():
         db_url = str(db.engine.url)
         print(f"🔄 Verificando migraciones para: {db_url}")
         
+        # Migración 1: Columna 'cost' en order_items
         if 'postgresql' in db_url.lower():
             # PostgreSQL: verificar primero si existe, luego agregar
             try:
@@ -126,13 +127,12 @@ def run_migrations():
                 
                 if result:
                     print("✅ Columna 'cost' ya existe en order_items")
-                    return
-                
-                # No existe, agregarla
-                print("🔄 Agregando columna 'cost' a order_items...")
-                db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
-                db.session.commit()
-                print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
+                else:
+                    # No existe, agregarla
+                    print("🔄 Agregando columna 'cost' a order_items...")
+                    db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'cost' agregada a order_items")
             except Exception as e:
                 db.session.rollback()
                 error_str = str(e).lower()
@@ -140,18 +140,44 @@ def run_migrations():
                 if "already exists" in error_str or "duplicate" in error_str:
                     print("✅ Columna 'cost' ya existe en order_items")
                 else:
-                    print(f"❌ Error en migración PostgreSQL: {e}")
+                    print(f"❌ Error en migración PostgreSQL (cost): {e}")
                     import traceback
                     traceback.print_exc()
+            
+            # Migración 2: Columna 'price_per_charged_unit' en purchases
+            try:
+                check_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='purchases' AND column_name='price_per_charged_unit'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Columna 'price_per_charged_unit' ya existe en purchases")
+                else:
+                    # No existe, agregarla
+                    print("🔄 Agregando columna 'price_per_charged_unit' a purchases...")
+                    db.session.execute(text("ALTER TABLE purchases ADD COLUMN price_per_charged_unit FLOAT"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'price_per_charged_unit' agregada a purchases")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'price_per_charged_unit' ya existe en purchases")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (price_per_charged_unit): {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
         elif 'sqlite' in db_url.lower():
             # SQLite: verificar si existe antes de agregar
+            # Migración 1: cost en order_items
             try:
-                # Intentar hacer una consulta que incluya la columna cost
                 db.session.execute(text("SELECT cost FROM order_items LIMIT 1"))
                 print("✅ Columna 'cost' ya existe en order_items")
-                return
             except Exception:
-                # La columna no existe, agregarla
                 try:
                     print("🔄 Agregando columna 'cost' a order_items...")
                     db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
@@ -163,11 +189,32 @@ def run_migrations():
                     if "duplicate column" in error_str or "already exists" in error_str:
                         print("✅ Columna 'cost' ya existe en order_items")
                     else:
-                        print(f"❌ Error en migración SQLite: {e}")
+                        print(f"❌ Error en migración SQLite (cost): {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Migración 2: price_per_charged_unit en purchases
+            try:
+                db.session.execute(text("SELECT price_per_charged_unit FROM purchases LIMIT 1"))
+                print("✅ Columna 'price_per_charged_unit' ya existe en purchases")
+            except Exception:
+                try:
+                    print("🔄 Agregando columna 'price_per_charged_unit' a purchases...")
+                    db.session.execute(text("ALTER TABLE purchases ADD COLUMN price_per_charged_unit FLOAT"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'price_per_charged_unit' agregada a purchases")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "duplicate column" in error_str or "already exists" in error_str:
+                        print("✅ Columna 'price_per_charged_unit' ya existe en purchases")
+                    else:
+                        print(f"❌ Error en migración SQLite (price_per_charged_unit): {e}")
                         import traceback
                         traceback.print_exc()
         else:
             # Otra base de datos, intentar método genérico
+            # Migración 1: cost en order_items
             try:
                 print("🔄 Agregando columna 'cost' a order_items...")
                 db.session.execute(text("ALTER TABLE order_items ADD COLUMN cost FLOAT"))
@@ -179,7 +226,23 @@ def run_migrations():
                 if "already exists" in error_str or "duplicate" in error_str:
                     print("✅ Columna 'cost' ya existe en order_items")
                 else:
-                    print(f"❌ Error en migración: {e}")
+                    print(f"❌ Error en migración (cost): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 2: price_per_charged_unit en purchases
+            try:
+                print("🔄 Agregando columna 'price_per_charged_unit' a purchases...")
+                db.session.execute(text("ALTER TABLE purchases ADD COLUMN price_per_charged_unit FLOAT"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'price_per_charged_unit' agregada a purchases")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'price_per_charged_unit' ya existe en purchases")
+                else:
+                    print(f"❌ Error en migración (price_per_charged_unit): {e}")
                     import traceback
                     traceback.print_exc()
     except Exception as e:
