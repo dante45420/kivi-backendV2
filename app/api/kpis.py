@@ -187,6 +187,7 @@ def get_utility_details():
                         order_cost += item_cost
                         
                         items_detail.append({
+                            'item_id': item.id,  # ID del item para poder editarlo
                             'product_name': item.product.name if item.product else 'Producto desconocido',
                             'qty': item.qty,
                             'unit': item.unit,

@@ -572,6 +572,19 @@ def update_order_item(item_id):
             elif not item.unit_price:
                 # Si no hay oferta y no hay unit_price, usar precio del producto
                 item.unit_price = item.product.sale_price if item.product else None
+        
+        # Permitir editar el costo manualmente (para correcciones)
+        if "cost" in data:
+            try:
+                new_cost = float(data["cost"])
+                if new_cost >= 0:  # Validar que sea un número positivo
+                    item.cost = new_cost
+                    print(f"✅ Costo del item {item_id} actualizado manualmente a {new_cost}")
+                else:
+                    return jsonify({"error": "El costo debe ser un número positivo"}), 400
+            except (ValueError, TypeError):
+                return jsonify({"error": "El costo debe ser un número válido"}), 400
+        
         if "notes" in data:
             item.notes = data["notes"]
         

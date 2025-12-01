@@ -84,6 +84,8 @@ def create_purchase():
         product.purchase_price = cost_per_charged_unit
         
         # Actualizar OrderItems existentes: aplicar conversión y registrar costo
+        # IMPORTANTE: Solo actualizar items que NO tienen costo aún o que pertenecen a pedidos no completados
+        # Esto preserva el costo original de pedidos ya completados
         order_items = OrderItem.query.filter_by(product_id=product_id).all()
         
         # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión
@@ -97,6 +99,8 @@ def create_purchase():
                 product.avg_units_per_kg = conversion_qty / qty
             
             charged_unit = conversion_unit
+            items_updated = 0
+            items_skipped = 0
             
             for item in order_items:
                 # Aplicar conversión si es necesario
@@ -115,32 +119,51 @@ def create_purchase():
                         item.charged_qty = item.qty * product.avg_units_per_kg
                         item.charged_unit = charged_unit
                 
-                # Actualizar el costo en la unidad de cobro (SIEMPRE actualizar, no solo si es None)
-                # Manejar caso donde la columna puede no existir aún
+                # Actualizar el costo SOLO si:
+                # 1. El item no tiene costo aún (cost is None), O
+                # 2. El pedido no está completado (para permitir actualizaciones antes de completar)
                 try:
-                    item.cost = cost_per_charged_unit
+                    current_cost = getattr(item, 'cost', None)
+                    order_status = item.order.status if item.order else None
+                    
+                    # Solo actualizar si no tiene costo o si el pedido no está completado
+                    if current_cost is None or order_status != 'completed':
+                        item.cost = cost_per_charged_unit
+                        items_updated += 1
+                    else:
+                        items_skipped += 1
+                        print(f"  ⏭️  Item {item.id} (pedido #{item.order_id}) ya tiene costo y pedido está completado, no se actualiza")
                 except Exception:
-                    # Si la columna no existe, intentar asignarla (puede fallar si la migración no se ejecutó)
+                    # Si la columna no existe, intentar asignarla
                     try:
                         setattr(item, 'cost', cost_per_charged_unit)
+                        items_updated += 1
                     except Exception as e:
                         print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
             
-            print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
+            print(f"✅ Actualizado {items_updated} items con conversión y costo para producto #{product_id} (omitidos {items_skipped} items con costo ya asignado)")
         else:
-            # Sin conversión: actualizar costos de TODOS los items del producto
-            # El costo está en la unidad de la compra (unit), que debería ser igual a product.unit
+            # Sin conversión: actualizar costos SOLO de items sin costo o de pedidos no completados
             items_updated = 0
+            items_skipped = 0
+            
             for item in order_items:
-                # Actualizar costo de todos los items, independientemente de su unidad
-                # porque el costo se calcula en la unidad de cobro del producto
+                # Actualizar costo solo si no tiene costo o si el pedido no está completado
                 try:
-                    item.cost = cost_per_charged_unit
-                    # Si no hay conversión, charged_qty debe ser igual a qty
-                    if item.charged_qty is None:
-                        item.charged_qty = item.qty
-                        item.charged_unit = item.unit
-                    items_updated += 1
+                    current_cost = getattr(item, 'cost', None)
+                    order_status = item.order.status if item.order else None
+                    
+                    # Solo actualizar si no tiene costo o si el pedido no está completado
+                    if current_cost is None or order_status != 'completed':
+                        item.cost = cost_per_charged_unit
+                        # Si no hay conversión, charged_qty debe ser igual a qty
+                        if item.charged_qty is None:
+                            item.charged_qty = item.qty
+                            item.charged_unit = item.unit
+                        items_updated += 1
+                    else:
+                        items_skipped += 1
+                        print(f"  ⏭️  Item {item.id} (pedido #{item.order_id}) ya tiene costo y pedido está completado, no se actualiza")
                 except Exception:
                     try:
                         setattr(item, 'cost', cost_per_charged_unit)
@@ -151,7 +174,7 @@ def create_purchase():
                     except Exception as e:
                         print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
             
-            print(f"✅ Actualizado {items_updated} items con costo para producto #{product_id} (sin conversión)")
+            print(f"✅ Actualizado {items_updated} items con costo para producto #{product_id} (sin conversión, omitidos {items_skipped} items con costo ya asignado)")
         
         # Crear historial de precio
         price_history = PriceHistory(
