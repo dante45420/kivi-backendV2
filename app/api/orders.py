@@ -71,8 +71,8 @@ def get_order(id):
         # Usar la misma lógica que get_customer_debt
         subtotal = 0
         for item in order.items:
-            # Usar charged_qty solo si el pedido está completed y existe conversión
-            if order.status == 'completed' and item.charged_qty is not None:
+            # Usar charged_qty siempre que exista (independientemente del estado del pedido)
+            if item.charged_qty is not None:
                 qty_to_charge = item.charged_qty
             else:
                 qty_to_charge = item.qty

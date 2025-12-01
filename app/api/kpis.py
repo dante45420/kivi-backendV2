@@ -43,8 +43,8 @@ def get_kpis():
             has_cost_data = True
             
             for item in order.items:
-                # Usar charged_qty solo si el pedido está completed y existe conversión
-                if order.status == 'completed' and item.charged_qty is not None:
+                # Usar charged_qty siempre que exista (independientemente del estado del pedido)
+                if item.charged_qty is not None:
                     qty_to_charge = item.charged_qty
                 else:
                     qty_to_charge = item.qty
@@ -109,7 +109,8 @@ def get_kpis():
         for order in recent_orders:
             order_subtotal = 0
             for item in order.items:
-                if order.status == 'completed' and item.charged_qty is not None:
+                # Usar charged_qty siempre que exista (independientemente del estado del pedido)
+                if item.charged_qty is not None:
                     qty_to_charge = item.charged_qty
                 else:
                     qty_to_charge = item.qty

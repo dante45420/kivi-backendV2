@@ -180,9 +180,9 @@ def get_customer_debt(id):
                         qty = float(item.qty) if item.qty is not None else 0
                         charged_qty = float(item.charged_qty) if item.charged_qty is not None else None
                         
-                        # Usar charged_qty solo si el pedido está completed y existe conversión
-                        # Si está emitted, usar qty original (aún no se ha registrado la compra)
-                        if order.status == 'completed' and charged_qty is not None:
+                        # Usar charged_qty siempre que exista (independientemente del estado del pedido)
+                        # Esto asegura que las conversiones se usen correctamente en contabilidad
+                        if charged_qty is not None:
                             qty_to_charge = charged_qty
                         else:
                             qty_to_charge = qty

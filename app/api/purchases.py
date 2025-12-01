@@ -82,7 +82,10 @@ def create_purchase():
     # Actualizar precio de compra del producto
     product.purchase_price = cost_per_charged_unit
     
-    # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión a OrderItems
+    # Actualizar OrderItems existentes: aplicar conversión y registrar costo
+    order_items = OrderItem.query.filter_by(product_id=product_id).all()
+    
+    # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión
     if conversion_qty and conversion_unit:
         # Calcular conversión para el producto
         if unit == "unit" and conversion_unit == "kg":
@@ -92,8 +95,6 @@ def create_purchase():
             # X kg = Y unidades → avg_units_per_kg = Y / X
             product.avg_units_per_kg = conversion_qty / qty
         
-        # Actualizar OrderItems existentes: aplicar conversión y registrar costo
-        order_items = OrderItem.query.filter_by(product_id=product_id).all()
         charged_unit = conversion_unit
         
         for item in order_items:
@@ -113,20 +114,41 @@ def create_purchase():
                     item.charged_qty = item.qty * product.avg_units_per_kg
                     item.charged_unit = charged_unit
             
-            # Registrar el costo en la unidad de cobro (solo si no tiene costo ya)
+            # Actualizar el costo en la unidad de cobro (SIEMPRE actualizar, no solo si es None)
             # Manejar caso donde la columna puede no existir aún
             try:
-                current_cost = getattr(item, 'cost', None)
-                if current_cost is None:
-                    item.cost = cost_per_charged_unit
+                item.cost = cost_per_charged_unit
             except Exception:
                 # Si la columna no existe, intentar asignarla (puede fallar si la migración no se ejecutó)
                 try:
-                    item.cost = cost_per_charged_unit
+                    setattr(item, 'cost', cost_per_charged_unit)
                 except Exception as e:
                     print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
         
         print(f"✅ Actualizado {len(order_items)} items con conversión y costo para producto #{product_id}")
+    else:
+        # Sin conversión: actualizar costos de todos los items del producto
+        # El costo está en la unidad de la compra (unit), que debería ser igual a product.unit
+        for item in order_items:
+            # Actualizar costo si el item está en la misma unidad que la compra
+            # o si está en la unidad del producto (que debería ser la misma)
+            if item.unit == unit or item.unit == product.unit:
+                try:
+                    item.cost = cost_per_charged_unit
+                    # Si no hay conversión, charged_qty debe ser igual a qty
+                    if item.charged_qty is None:
+                        item.charged_qty = item.qty
+                        item.charged_unit = item.unit
+                except Exception:
+                    try:
+                        setattr(item, 'cost', cost_per_charged_unit)
+                        if item.charged_qty is None:
+                            item.charged_qty = item.qty
+                            item.charged_unit = item.unit
+                    except Exception as e:
+                        print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
+        
+        print(f"✅ Actualizado items con costo para producto #{product_id} (sin conversión)")
     
     # Crear historial de precio
     price_history = PriceHistory(
@@ -136,27 +158,40 @@ def create_purchase():
     )
     db.session.add(price_history)
     
-    # Buscar pedidos emitidos con este producto y cambiar status a finalized
+    # Buscar pedidos emitidos con este producto y cambiar status a completed
     emitted_orders = Order.query.filter_by(status="emitted").all()
     for order in emitted_orders:
         # Verificar si tiene items con este producto
         has_product = any(
-            item.product_id == product_id and item.unit == unit
+            item.product_id == product_id
             for item in order.items
         )
         if has_product:
-            # Verificar si todos los productos del pedido tienen compra registrada
+            # Verificar si todos los items del pedido tienen costo registrado
+            # Esto es más preciso que solo verificar purchase_price del producto
             all_purchased = True
             for item in order.items:
-                item_product = Product.query.get(item.product_id)
-                if not item_product or not item_product.purchase_price:
-                    all_purchased = False
-                    break
+                # Verificar que el item tenga costo asignado
+                try:
+                    item_cost = getattr(item, 'cost', None)
+                    if item_cost is None:
+                        # Si no tiene costo, verificar si el producto tiene purchase_price
+                        item_product = Product.query.get(item.product_id)
+                        if not item_product or not item_product.purchase_price:
+                            all_purchased = False
+                            break
+                except Exception:
+                    # Si hay error accediendo a cost, verificar purchase_price como fallback
+                    item_product = Product.query.get(item.product_id)
+                    if not item_product or not item_product.purchase_price:
+                        all_purchased = False
+                        break
             
-            # Si todos tienen precio, marcar el pedido como completado
+            # Si todos tienen costo/precio, marcar el pedido como completado
             if all_purchased:
                 order.status = "completed"
                 order.completed_at = datetime.utcnow()
+                print(f"✅ Pedido #{order.id} marcado como completado")
     
     db.session.commit()
     
