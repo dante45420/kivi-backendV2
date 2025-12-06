@@ -88,9 +88,7 @@ def create_purchase():
         # Esto preserva el costo original de pedidos ya completados
         order_items = OrderItem.query.filter_by(product_id=product_id).all()
         
-        # Si hay conversión, actualizar avg_units_per_kg del producto
-        # IMPORTANTE: Esto actualiza la conversión del producto, pero NO recalcula charged_qty
-        # de items existentes que ya tienen conversión, para preservar la conversión histórica
+        # Si hay conversión, actualizar avg_units_per_kg y aplicar conversión
         if conversion_qty and conversion_unit:
             # Calcular conversión para el producto
             if unit == "unit" and conversion_unit == "kg":
@@ -101,34 +99,25 @@ def create_purchase():
                 product.avg_units_per_kg = conversion_qty / qty
             
             charged_unit = conversion_unit
-            items_updated_cost = 0
-            items_skipped_conversion = 0
-            items_skipped_cost = 0
+            items_updated = 0
+            items_skipped = 0
             
             for item in order_items:
-                # IMPORTANTE: Solo aplicar conversión a items que NO tienen charged_qty aún
-                # Esto preserva la conversión histórica usada al momento de crear el pedido
-                if item.charged_qty is None:
-                    # Aplicar conversión solo si el item no tiene conversión asignada
-                    if item.unit == charged_unit:
-                        # No hay conversión necesaria
-                        item.charged_qty = item.qty
+                # Aplicar conversión si es necesario
+                if item.unit == charged_unit:
+                    # No hay conversión necesaria
+                    item.charged_qty = item.qty
+                    item.charged_unit = charged_unit
+                elif item.unit == "unit" and charged_unit == "kg":
+                    # Item en unidades, se cobra en kg
+                    if product.avg_units_per_kg and product.avg_units_per_kg > 0:
+                        item.charged_qty = item.qty / product.avg_units_per_kg
                         item.charged_unit = charged_unit
-                    elif item.unit == "unit" and charged_unit == "kg":
-                        # Item en unidades, se cobra en kg
-                        if product.avg_units_per_kg and product.avg_units_per_kg > 0:
-                            item.charged_qty = item.qty / product.avg_units_per_kg
-                            item.charged_unit = charged_unit
-                    elif item.unit == "kg" and charged_unit == "unit":
-                        # Item en kg, se cobra en unidades
-                        if product.avg_units_per_kg and product.avg_units_per_kg > 0:
-                            item.charged_qty = item.qty * product.avg_units_per_kg
-                            item.charged_unit = charged_unit
-                else:
-                    # El item ya tiene conversión asignada, no la modificamos
-                    # para preservar la conversión histórica
-                    items_skipped_conversion += 1
-                    print(f"  ⏭️  Item {item.id} (pedido #{item.order_id}) ya tiene conversión asignada (charged_qty={item.charged_qty}), no se actualiza")
+                elif item.unit == "kg" and charged_unit == "unit":
+                    # Item en kg, se cobra en unidades
+                    if product.avg_units_per_kg and product.avg_units_per_kg > 0:
+                        item.charged_qty = item.qty * product.avg_units_per_kg
+                        item.charged_unit = charged_unit
                 
                 # Actualizar el costo SOLO si:
                 # 1. El item no tiene costo aún (cost is None), O
@@ -140,23 +129,19 @@ def create_purchase():
                     # Solo actualizar si no tiene costo o si el pedido no está completado
                     if current_cost is None or order_status != 'completed':
                         item.cost = cost_per_charged_unit
-                        items_updated_cost += 1
+                        items_updated += 1
                     else:
-                        items_skipped_cost += 1
+                        items_skipped += 1
                         print(f"  ⏭️  Item {item.id} (pedido #{item.order_id}) ya tiene costo y pedido está completado, no se actualiza")
                 except Exception:
                     # Si la columna no existe, intentar asignarla
                     try:
                         setattr(item, 'cost', cost_per_charged_unit)
-                        items_updated_cost += 1
+                        items_updated += 1
                     except Exception as e:
                         print(f"⚠️  No se pudo asignar costo al item {item.id}: {e}")
             
-            print(f"✅ Actualizado {items_updated_cost} items con costo para producto #{product_id}")
-            if items_skipped_conversion > 0:
-                print(f"   ⚠️  Omitidos {items_skipped_conversion} items con conversión ya asignada (preservando conversión histórica)")
-            if items_skipped_cost > 0:
-                print(f"   ⚠️  Omitidos {items_skipped_cost} items con costo ya asignado en pedidos completados")
+            print(f"✅ Actualizado {items_updated} items con conversión y costo para producto #{product_id} (omitidos {items_skipped} items con costo ya asignado)")
         else:
             # Sin conversión: actualizar costos SOLO de items sin costo o de pedidos no completados
             items_updated = 0
