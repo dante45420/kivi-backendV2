@@ -538,9 +538,38 @@ def update_order_item(item_id):
             new_qty = data["qty"]
             item.qty = new_qty
             
-            # Si el item tiene conversión configurada, recalcular charged_qty
-            # Solo si realmente hay una conversión (item.unit != charged_unit)
-            if item.charged_unit and item.unit != item.charged_unit and item.product:
+            # Si se proporciona charged_qty y charged_unit explícitamente, usarlos
+            # (permite editar la conversión manualmente)
+            if "charged_qty" in data and "charged_unit" in data:
+                if data["charged_qty"] is not None and data["charged_unit"]:
+                    item.charged_qty = float(data["charged_qty"])
+                    item.charged_unit = data["charged_unit"]
+                elif data["charged_unit"] is None or data["charged_unit"] == "":
+                    # Si se elimina la conversión, resetear
+                    item.charged_qty = None
+                    item.charged_unit = None
+            # Si solo se proporciona charged_qty o charged_unit, actualizar solo ese campo
+            elif "charged_qty" in data:
+                if data["charged_qty"] is not None:
+                    item.charged_qty = float(data["charged_qty"])
+                else:
+                    item.charged_qty = None
+            elif "charged_unit" in data:
+                if data["charged_unit"]:
+                    item.charged_unit = data["charged_unit"]
+                    # Si se cambia la unidad pero no la cantidad, recalcular charged_qty
+                    if item.charged_unit != item.unit and item.product:
+                        if item.unit == "unit" and item.charged_unit == "kg":
+                            if item.product.avg_units_per_kg and item.product.avg_units_per_kg > 0:
+                                item.charged_qty = new_qty / item.product.avg_units_per_kg
+                        elif item.unit == "kg" and item.charged_unit == "unit":
+                            if item.product.avg_units_per_kg and item.product.avg_units_per_kg > 0:
+                                item.charged_qty = new_qty * item.product.avg_units_per_kg
+                else:
+                    item.charged_unit = None
+                    item.charged_qty = None
+            # Si no se proporciona conversión explícita, recalcular automáticamente si hay conversión configurada
+            elif item.charged_unit and item.unit != item.charged_unit and item.product:
                 # Hay conversión real, recalcular charged_qty
                 if item.unit == "unit" and item.charged_unit == "kg":
                     # Item en unidades, se cobra en kg

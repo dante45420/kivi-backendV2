@@ -60,7 +60,7 @@ def create_app():
         from app.models import (
             Category, Product, Customer, Order, OrderItem,
             Expense, Payment, PaymentAllocation, WeeklyOffer,
-            PriceHistory, ContentTemplate, KiviTip
+            PriceHistory, ContentTemplate, KiviTip, WeeklyCost
         )
         
         # Inicializar datos de prueba si es desarrollo
@@ -71,7 +71,7 @@ def create_app():
         from app.api import (
             categories_bp, products_bp, customers_bp,
             orders_bp, payments_bp, purchases_bp, kivi_bp, content_bp,
-            weekly_offers_bp, auth_bp, images_bp, kpis_bp
+            weekly_offers_bp, auth_bp, images_bp, kpis_bp, weekly_costs_bp
         )
         
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
@@ -86,6 +86,7 @@ def create_app():
         app.register_blueprint(weekly_offers_bp, url_prefix="/api/weekly-offers")
         app.register_blueprint(images_bp, url_prefix="/api/images")
         app.register_blueprint(kpis_bp)
+        app.register_blueprint(weekly_costs_bp)
     
     # Ruta de health check
     @app.route("/health")

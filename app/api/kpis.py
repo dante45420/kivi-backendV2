@@ -2,11 +2,26 @@
 API: KPIs Simplificados
 Métricas básicas del negocio
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from flask import Blueprint, jsonify
 from ..db import db
-from ..models import Order, OrderItem, Customer
+from ..models import Order, OrderItem, Customer, WeeklyCost
 from ..utils.shipping import calculate_shipping
+
+
+def get_week_start(dt=None):
+    """Obtiene el lunes de la semana para una fecha dada"""
+    if dt is None:
+        dt = datetime.utcnow()
+    elif isinstance(dt, str):
+        dt = datetime.fromisoformat(dt)
+    elif isinstance(dt, date):
+        dt = datetime.combine(dt, datetime.min.time())
+    
+    # Calcular días desde el lunes (0 = lunes, 6 = domingo)
+    days_since_monday = dt.weekday()
+    week_start = dt - timedelta(days=days_since_monday)
+    return week_start.date() if isinstance(dt, date) else week_start
 
 bp = Blueprint("kpis", __name__, url_prefix="/api/kpis")
 
@@ -238,4 +253,151 @@ def get_utility_details():
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Error obteniendo detalles de utilidad: {str(e)}"}), 500
+
+
+@bp.route("/utility-by-week", methods=["GET"])
+def get_utility_by_week():
+    """
+    Obtiene la utilidad por semana ordenada desde la más antigua hasta la actual.
+    Incluye:
+    - Utilidad total por pedidos de esa semana
+    - Costos de esa semana (agrupados por categoría)
+    - Resultado final de la semana (utilidad - costos)
+    """
+    try:
+        # Obtener todos los pedidos completados o emitidos
+        all_orders = Order.query.filter(
+            Order.status.in_(['completed', 'emitted'])
+        ).all()
+        
+        # Agrupar pedidos por semana
+        weeks_data = {}
+        
+        for order in all_orders:
+            if not order.created_at:
+                continue
+            
+            # Obtener el lunes de la semana del pedido
+            week_start = get_week_start(order.created_at)
+            week_key = week_start.isoformat()
+            
+            if week_key not in weeks_data:
+                weeks_data[week_key] = {
+                    'week_start': week_key,
+                    'orders': [],
+                    'orders_utility': 0,
+                    'orders_revenue': 0,
+                    'orders_cost': 0
+                }
+            
+            # Calcular utilidad del pedido
+            order_subtotal = 0
+            order_cost = 0
+            has_cost_data = True
+            
+            for item in order.items:
+                # Usar charged_qty siempre que exista
+                if item.charged_qty is not None:
+                    qty_to_charge = item.charged_qty
+                else:
+                    qty_to_charge = item.qty
+                
+                # Precio de venta
+                unit_price = item.unit_price
+                if not unit_price and item.product:
+                    unit_price = item.product.sale_price or 0
+                
+                item_revenue = round(qty_to_charge * (unit_price or 0))
+                order_subtotal += item_revenue
+                
+                # Costo
+                try:
+                    item_cost_value = getattr(item, 'cost', None)
+                    if item_cost_value is not None:
+                        item_cost = qty_to_charge * item_cost_value
+                        order_cost += item_cost
+                    else:
+                        has_cost_data = False
+                except Exception:
+                    has_cost_data = False
+            
+            # Calcular envío
+            shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
+            order_total = order_subtotal + shipping_amount
+            
+            # Solo incluir pedidos con monto > 0
+            if order_total > 0:
+                weeks_data[week_key]['orders'].append({
+                    'order_id': order.id,
+                    'order_date': order.created_at.isoformat() if order.created_at else None,
+                    'total': order_total
+                })
+                weeks_data[week_key]['orders_revenue'] += order_total
+                
+                # Si tiene datos de costo, calcular utilidad
+                if has_cost_data and order_cost > 0:
+                    utility_amount = order_total - order_cost
+                    weeks_data[week_key]['orders_utility'] += utility_amount
+                    weeks_data[week_key]['orders_cost'] += order_cost
+        
+        # Obtener costos semanales
+        all_weekly_costs = WeeklyCost.query.all()
+        costs_by_week = {}
+        
+        for cost in all_weekly_costs:
+            week_key = cost.week_start.isoformat()
+            if week_key not in costs_by_week:
+                costs_by_week[week_key] = {
+                    'categories': {},
+                    'total': 0
+                }
+            
+            if cost.category not in costs_by_week[week_key]['categories']:
+                costs_by_week[week_key]['categories'][cost.category] = {
+                    'amount': 0,
+                    'count': 0
+                }
+            
+            costs_by_week[week_key]['categories'][cost.category]['amount'] += cost.amount
+            costs_by_week[week_key]['categories'][cost.category]['count'] += cost.count
+            costs_by_week[week_key]['total'] += cost.amount
+        
+        # Combinar datos de semanas
+        result = []
+        for week_key, week_data in weeks_data.items():
+            week_costs = costs_by_week.get(week_key, {'categories': {}, 'total': 0})
+            
+            # Calcular resultado final
+            final_result = week_data['orders_utility'] - week_costs['total']
+            
+            result.append({
+                'week_start': week_data['week_start'],
+                'orders_count': len(week_data['orders']),
+                'orders_revenue': round(week_data['orders_revenue']),
+                'orders_utility': round(week_data['orders_utility']),
+                'orders_cost': round(week_data['orders_cost']),
+                'weekly_costs': week_costs['categories'],
+                'weekly_costs_total': round(week_costs['total']),
+                'final_result': round(final_result)
+            })
+        
+        # Ordenar por semana (más antigua primero)
+        result.sort(key=lambda x: x['week_start'])
+        
+        # Obtener la última semana registrada
+        last_week = result[-1] if result else None
+        
+        return jsonify({
+            'weeks': result,
+            'last_week': last_week
+        })
+    
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error obteniendo utilidad por semana: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error obteniendo utilidad por semana: {str(e)}"
+        }), 500
 

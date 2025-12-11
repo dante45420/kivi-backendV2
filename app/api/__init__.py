@@ -13,6 +13,7 @@ from .content import bp as content_bp
 from .weekly_offers import bp as weekly_offers_bp
 from .images import bp as images_bp
 from .kpis import bp as kpis_bp
+from .weekly_costs import bp as weekly_costs_bp
 
 __all__ = [
     "auth_bp",
@@ -27,5 +28,6 @@ __all__ = [
     "weekly_offers_bp",
     "images_bp",
     "kpis_bp",
+    "weekly_costs_bp",
 ]
 

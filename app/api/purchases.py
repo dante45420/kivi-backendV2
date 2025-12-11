@@ -75,9 +75,13 @@ def create_purchase():
             cost_per_charged_unit = price_per_charged_unit
         elif conversion_qty and conversion_unit:
             # Hay conversión: precio_total / cantidad en unidad de cobro
+            # Esto calcula el costo por unidad de cobro correctamente
             cost_per_charged_unit = price_total / conversion_qty
         else:
             # Sin conversión: usar precio por unidad
+            # Si el precio por unidad no se proporcionó, calcularlo
+            if not price_per_unit or price_per_unit == 0:
+                price_per_unit = price_total / qty
             cost_per_charged_unit = price_per_unit
         
         # Actualizar precio de compra del producto
@@ -121,7 +125,7 @@ def create_purchase():
                         if product.avg_units_per_kg and product.avg_units_per_kg > 0:
                             item.charged_qty = item.qty * product.avg_units_per_kg
                             item.charged_unit = charged_unit
-                # Si charged_qty ya existe, NO lo actualizamos para preservar la conversión histórica
+                # Si charged_qty ya existe, NO lo actualizamos para preservar la conversión históric
                 
                 # Actualizar el costo SOLO si:
                 # 1. El item no tiene costo aún (cost is None), O
