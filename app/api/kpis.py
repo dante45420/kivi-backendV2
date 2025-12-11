@@ -3,14 +3,14 @@ API: KPIs Simplificados
 Métricas básicas del negocio
 """
 from datetime import datetime, timedelta, date
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from ..db import db
 from ..models import Order, OrderItem, Customer, WeeklyCost
 from ..utils.shipping import calculate_shipping
 
 
 def get_week_start(dt=None):
-    """Obtiene el lunes de la semana para una fecha dada"""
+    """Obtiene el lunes de la semana para una fecha dada. Siempre devuelve un date."""
     if dt is None:
         dt = datetime.utcnow()
     elif isinstance(dt, str):
@@ -18,10 +18,16 @@ def get_week_start(dt=None):
     elif isinstance(dt, date):
         dt = datetime.combine(dt, datetime.min.time())
     
+    # Si dt es datetime, convertir a date para el cálculo
+    if isinstance(dt, datetime):
+        dt_date = dt.date()
+    else:
+        dt_date = dt
+    
     # Calcular días desde el lunes (0 = lunes, 6 = domingo)
-    days_since_monday = dt.weekday()
-    week_start = dt - timedelta(days=days_since_monday)
-    return week_start.date() if isinstance(dt, date) else week_start
+    days_since_monday = dt_date.weekday()
+    week_start = dt_date - timedelta(days=days_since_monday)
+    return week_start
 
 bp = Blueprint("kpis", __name__, url_prefix="/api/kpis")
 
@@ -278,8 +284,14 @@ def get_utility_by_week():
                 continue
             
             # Obtener el lunes de la semana del pedido
-            week_start = get_week_start(order.created_at)
-            week_key = week_start.isoformat()
+            try:
+                week_start = get_week_start(order.created_at)
+                week_key = week_start.isoformat() if week_start else None
+                if not week_key:
+                    continue
+            except Exception as e:
+                print(f"⚠️  Error calculando semana para pedido {order.id}: {e}")
+                continue
             
             if week_key not in weeks_data:
                 weeks_data[week_key] = {
@@ -340,27 +352,35 @@ def get_utility_by_week():
                     weeks_data[week_key]['orders_utility'] += utility_amount
                     weeks_data[week_key]['orders_cost'] += order_cost
         
-        # Obtener costos semanales
-        all_weekly_costs = WeeklyCost.query.all()
+        # Obtener costos semanales (manejar caso donde la tabla no existe aún)
         costs_by_week = {}
-        
-        for cost in all_weekly_costs:
-            week_key = cost.week_start.isoformat()
-            if week_key not in costs_by_week:
-                costs_by_week[week_key] = {
-                    'categories': {},
-                    'total': 0
-                }
+        try:
+            all_weekly_costs = WeeklyCost.query.all()
             
-            if cost.category not in costs_by_week[week_key]['categories']:
-                costs_by_week[week_key]['categories'][cost.category] = {
-                    'amount': 0,
-                    'count': 0
-                }
-            
-            costs_by_week[week_key]['categories'][cost.category]['amount'] += cost.amount
-            costs_by_week[week_key]['categories'][cost.category]['count'] += cost.count
-            costs_by_week[week_key]['total'] += cost.amount
+            for cost in all_weekly_costs:
+                week_key = cost.week_start.isoformat() if cost.week_start else None
+                if not week_key:
+                    continue
+                    
+                if week_key not in costs_by_week:
+                    costs_by_week[week_key] = {
+                        'categories': {},
+                        'total': 0
+                    }
+                
+                if cost.category not in costs_by_week[week_key]['categories']:
+                    costs_by_week[week_key]['categories'][cost.category] = {
+                        'amount': 0,
+                        'count': 0
+                    }
+                
+                costs_by_week[week_key]['categories'][cost.category]['amount'] += cost.amount
+                costs_by_week[week_key]['categories'][cost.category]['count'] += cost.count
+                costs_by_week[week_key]['total'] += cost.amount
+        except Exception as cost_error:
+            # Si la tabla no existe o hay un error, simplemente no incluir costos
+            print(f"⚠️  Advertencia: No se pudieron cargar costos semanales: {cost_error}")
+            # Continuar sin costos
         
         # Combinar datos de semanas
         result = []
@@ -398,6 +418,7 @@ def get_utility_by_week():
         print(f"❌ Error obteniendo utilidad por semana: {e}")
         print(error_trace)
         return jsonify({
-            "error": f"Error obteniendo utilidad por semana: {str(e)}"
+            "error": f"Error obteniendo utilidad por semana: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
         }), 500
 
