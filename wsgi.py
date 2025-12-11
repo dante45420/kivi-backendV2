@@ -171,6 +171,46 @@ def run_migrations():
                     print(f"❌ Error en migración PostgreSQL (price_per_charged_unit): {e}")
                     import traceback
                     traceback.print_exc()
+            
+            # Migración 3: Tabla 'weekly_costs'
+            try:
+                check_query = text("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_name='weekly_costs'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Tabla 'weekly_costs' ya existe")
+                else:
+                    # No existe, crearla
+                    print("🔄 Creando tabla 'weekly_costs'...")
+                    db.session.execute(text("""
+                        CREATE TABLE weekly_costs (
+                            id SERIAL PRIMARY KEY,
+                            week_start DATE NOT NULL,
+                            category VARCHAR(50) NOT NULL,
+                            amount INTEGER NOT NULL,
+                            count INTEGER NOT NULL DEFAULT 1,
+                            description TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_weekly_costs_week_start ON weekly_costs(week_start)"))
+                    db.session.execute(text("CREATE INDEX idx_weekly_costs_category ON weekly_costs(category)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'weekly_costs' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'weekly_costs' ya existe")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (weekly_costs): {e}")
+                    import traceback
+                    traceback.print_exc()
                     
         elif 'sqlite' in db_url.lower():
             # SQLite: verificar si existe antes de agregar
@@ -213,6 +253,39 @@ def run_migrations():
                         print(f"❌ Error en migración SQLite (price_per_charged_unit): {e}")
                         import traceback
                         traceback.print_exc()
+            
+            # Migración 3: Tabla 'weekly_costs' (SQLite)
+            try:
+                db.session.execute(text("SELECT id FROM weekly_costs LIMIT 1"))
+                print("✅ Tabla 'weekly_costs' ya existe")
+            except Exception:
+                try:
+                    print("🔄 Creando tabla 'weekly_costs'...")
+                    db.session.execute(text("""
+                        CREATE TABLE weekly_costs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            week_start DATE NOT NULL,
+                            category VARCHAR(50) NOT NULL,
+                            amount INTEGER NOT NULL,
+                            count INTEGER NOT NULL DEFAULT 1,
+                            description TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_weekly_costs_week_start ON weekly_costs(week_start)"))
+                    db.session.execute(text("CREATE INDEX idx_weekly_costs_category ON weekly_costs(category)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'weekly_costs' creada")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "already exists" in error_str or "duplicate" in error_str:
+                        print("✅ Tabla 'weekly_costs' ya existe")
+                    else:
+                        print(f"❌ Error en migración SQLite (weekly_costs): {e}")
+                        import traceback
+                        traceback.print_exc()
         else:
             # Otra base de datos, intentar método genérico
             # Migración 1: cost en order_items
@@ -244,6 +317,35 @@ def run_migrations():
                     print("✅ Columna 'price_per_charged_unit' ya existe en purchases")
                 else:
                     print(f"❌ Error en migración (price_per_charged_unit): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 3: Tabla 'weekly_costs' (genérico)
+            try:
+                print("🔄 Creando tabla 'weekly_costs'...")
+                db.session.execute(text("""
+                    CREATE TABLE weekly_costs (
+                        id INTEGER PRIMARY KEY,
+                        week_start DATE NOT NULL,
+                        category VARCHAR(50) NOT NULL,
+                        amount INTEGER NOT NULL,
+                        count INTEGER NOT NULL DEFAULT 1,
+                        description TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX idx_weekly_costs_week_start ON weekly_costs(week_start)"))
+                db.session.execute(text("CREATE INDEX idx_weekly_costs_category ON weekly_costs(category)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: tabla 'weekly_costs' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'weekly_costs' ya existe")
+                else:
+                    print(f"❌ Error en migración (weekly_costs): {e}")
                     import traceback
                     traceback.print_exc()
     except Exception as e:
