@@ -70,8 +70,19 @@ def create_purchase():
         db.session.add(purchase)
         
         # Calcular precio en unidad de cobro (unidad del producto)
-        # Si se proporcionó price_per_charged_unit, usarlo directamente
+        # Si se proporcionó price_per_charged_unit, validar que sea consistente
         if price_per_charged_unit:
+            # Si hay conversión, validar que price_per_charged_unit * conversion_qty ≈ price_total
+            if conversion_qty and conversion_unit:
+                expected_total = price_per_charged_unit * conversion_qty
+                # Permitir pequeña diferencia por redondeo (5%)
+                if abs(expected_total - price_total) / price_total > 0.05:
+                    # Si hay gran diferencia, recalcular price_total basado en price_per_charged_unit
+                    print(f"⚠️  Advertencia: price_per_charged_unit ({price_per_charged_unit}) * conversion_qty ({conversion_qty}) = {expected_total}, pero price_total = {price_total}")
+                    print(f"   Usando price_per_charged_unit para calcular costo, ajustando price_total a {expected_total}")
+                    price_total = expected_total
+                    # Recalcular price_per_unit también
+                    price_per_unit = price_total / qty
             cost_per_charged_unit = price_per_charged_unit
         elif conversion_qty and conversion_unit:
             # Hay conversión: precio_total / cantidad en unidad de cobro
@@ -107,25 +118,42 @@ def create_purchase():
             items_skipped = 0
             
             for item in order_items:
+                # Determinar la unidad de cobro correcta: siempre debe ser la unidad del producto
+                # cuando hay conversión, no la unidad del item
+                correct_charged_unit = product.unit  # La unidad del producto es la unidad de cobro
+                
                 # IMPORTANTE: Solo aplicar conversión si charged_qty NO está asignado aún
-                # Esto preserva la conversión histórica que se usó al momento de crear el pedido
-                if item.charged_qty is None:
+                # O si la conversión existente es incorrecta (charged_unit == unit cuando debería ser diferente)
+                needs_conversion = item.unit != correct_charged_unit
+                has_incorrect_conversion = (item.charged_unit and item.charged_unit == item.unit and needs_conversion)
+                
+                if item.charged_qty is None or has_incorrect_conversion:
                     # Aplicar conversión si es necesario
-                    if item.unit == charged_unit:
-                        # No hay conversión necesaria
+                    if item.unit == correct_charged_unit:
+                        # No hay conversión necesaria (item ya está en la unidad correcta)
                         item.charged_qty = item.qty
-                        item.charged_unit = charged_unit
-                    elif item.unit == "unit" and charged_unit == "kg":
-                        # Item en unidades, se cobra en kg
+                        item.charged_unit = correct_charged_unit
+                    elif item.unit == "unit" and correct_charged_unit == "kg":
+                        # Item en unidades, se cobra en kg (unidad del producto)
                         if product.avg_units_per_kg and product.avg_units_per_kg > 0:
                             item.charged_qty = item.qty / product.avg_units_per_kg
-                            item.charged_unit = charged_unit
-                    elif item.unit == "kg" and charged_unit == "unit":
-                        # Item en kg, se cobra en unidades
+                            item.charged_unit = correct_charged_unit  # Siempre usar la unidad del producto
+                        else:
+                            # Si no hay avg_units_per_kg, usar la conversión proporcionada
+                            if conversion_qty and conversion_qty > 0:
+                                item.charged_qty = item.qty / (qty / conversion_qty) if qty > 0 else item.qty
+                                item.charged_unit = correct_charged_unit
+                    elif item.unit == "kg" and correct_charged_unit == "unit":
+                        # Item en kg, se cobra en unidades (unidad del producto)
                         if product.avg_units_per_kg and product.avg_units_per_kg > 0:
                             item.charged_qty = item.qty * product.avg_units_per_kg
-                            item.charged_unit = charged_unit
-                # Si charged_qty ya existe, NO lo actualizamos para preservar la conversión históric
+                            item.charged_unit = correct_charged_unit  # Siempre usar la unidad del producto
+                        else:
+                            # Si no hay avg_units_per_kg, usar la conversión proporcionada
+                            if conversion_qty and conversion_qty > 0:
+                                item.charged_qty = item.qty * (conversion_qty / qty) if qty > 0 else item.qty
+                                item.charged_unit = correct_charged_unit
+                # Si charged_qty ya existe y la conversión es correcta, NO lo actualizamos para preservar la conversión histórica
                 
                 # Actualizar el costo SOLO si:
                 # 1. El item no tiene costo aún (cost is None), O

@@ -580,8 +580,10 @@ def update_order_item(item_id):
                     if item.product.avg_units_per_kg and item.product.avg_units_per_kg > 0:
                         item.charged_qty = new_qty * item.product.avg_units_per_kg
             elif item.charged_unit and item.unit == item.charged_unit:
-                # Item está en la unidad correcta, charged_qty debe ser igual a qty
-                item.charged_qty = new_qty
+                # Item está en la unidad correcta, NO debería tener conversión
+                # Resetear la conversión incorrecta
+                item.charged_qty = None
+                item.charged_unit = None
         
         if "unit_price" in data:
             item.unit_price = data["unit_price"]
@@ -602,7 +604,8 @@ def update_order_item(item_id):
                 # Si no hay oferta y no hay unit_price, usar precio del producto
                 item.unit_price = item.product.sale_price if item.product else None
         
-        # Permitir editar el costo manualmente (para correcciones)
+        # IMPORTANTE: Preservar el costo existente si no se proporciona uno nuevo
+        # Solo actualizar el costo si se proporciona explícitamente
         if "cost" in data:
             try:
                 new_cost = float(data["cost"])
@@ -613,9 +616,21 @@ def update_order_item(item_id):
                     return jsonify({"error": "El costo debe ser un número positivo"}), 400
             except (ValueError, TypeError):
                 return jsonify({"error": "El costo debe ser un número válido"}), 400
+        # Si no se proporciona cost en data, el costo existente se preserva automáticamente
+        # (SQLAlchemy no actualiza campos que no están en el objeto modificado)
         
         if "notes" in data:
             item.notes = data["notes"]
+        
+        # Verificar que el costo no se haya perdido (protección adicional)
+        try:
+            current_cost = getattr(item, 'cost', None)
+            if current_cost is None and hasattr(item, 'cost'):
+                # Si el costo era None antes y sigue siendo None, está bien
+                # Pero si había un costo y se perdió, sería un problema
+                print(f"⚠️  Advertencia: Item {item_id} no tiene costo asignado después de la actualización")
+        except Exception:
+            pass
         
         db.session.commit()
         
@@ -635,10 +650,11 @@ def delete_order_item(item_id):
     try:
         item = OrderItem.query.get_or_404(item_id)
         
-        # Validar que el pedido no esté completado
-        if item.order.status == "completed":
+        # Permitir eliminar items de pedidos completados (para ajustes)
+        # Solo bloquear si el pedido está en draft (aún no emitido)
+        if item.order.status == "draft":
             return jsonify({
-                "error": "No se pueden eliminar items de un pedido completado"
+                "error": "No se pueden eliminar items de un pedido en borrador. Emite el pedido primero."
             }), 400
         
         db.session.delete(item)

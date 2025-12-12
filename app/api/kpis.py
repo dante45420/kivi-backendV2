@@ -61,7 +61,8 @@ def get_kpis():
             # Calcular subtotal usando charged_qty si existe (para conversiones)
             order_subtotal = 0
             order_cost = 0
-            has_cost_data = True
+            has_cost_data = False  # Cambiar a False inicialmente
+            items_with_cost = 0
             
             for item in order.items:
                 # Usar charged_qty siempre que exista (independientemente del estado del pedido)
@@ -79,16 +80,20 @@ def get_kpis():
                 order_subtotal += item_revenue
                 
                 # Calcular costo si está registrado (manejar caso donde columna no existe)
+                # Cambio: permitir que algunos items tengan costo y otros no (costo parcial)
                 try:
                     item_cost_value = getattr(item, 'cost', None)
                     if item_cost_value is not None:
                         item_cost = qty_to_charge * item_cost_value
                         order_cost += item_cost
-                    else:
-                        has_cost_data = False
+                        items_with_cost += 1
                 except Exception:
                     # Si la columna no existe aún, no tiene datos de costo
-                    has_cost_data = False
+                    pass  # No marcar has_cost_data = False aquí
+            
+            # Solo marcar has_cost_data como True si al menos un item tiene costo
+            if items_with_cost > 0:
+                has_cost_data = True
             
             # Calcular envío
             shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
@@ -99,8 +104,9 @@ def get_kpis():
                 total_orders_count += 1
                 total_revenue += order_total
                 
-                # Si tiene datos de costo, calcular utilidad
-                if has_cost_data and order_cost > 0:
+                # Si tiene datos de costo (aunque sea parcial), calcular utilidad
+                # Cambio: incluir pedidos con costo parcial para no perderlos de las estadísticas
+                if has_cost_data and order_cost >= 0:  # Permitir costo 0 también
                     utility_amount = order_total - order_cost
                     utility_percent = (utility_amount / order_total) * 100 if order_total > 0 else 0
                     orders_with_utility.append({
@@ -182,7 +188,8 @@ def get_utility_details():
         for order in all_orders:
             order_subtotal = 0
             order_cost = 0
-            has_cost_data = True
+            has_cost_data = False  # Cambiar a False inicialmente
+            items_with_cost = 0
             items_detail = []
             
             for item in order.items:
@@ -206,6 +213,7 @@ def get_utility_details():
                     if item_cost_value is not None:
                         item_cost = qty_to_charge * item_cost_value
                         order_cost += item_cost
+                        items_with_cost += 1
                         
                         items_detail.append({
                             'item_id': item.id,  # ID del item para poder editarlo
@@ -221,17 +229,20 @@ def get_utility_details():
                             'item_utility': item_revenue - item_cost,
                             'item_utility_percent': ((item_revenue - item_cost) / item_revenue * 100) if item_revenue > 0 else 0
                         })
-                    else:
-                        has_cost_data = False
                 except Exception:
-                    has_cost_data = False
+                    pass  # No marcar has_cost_data = False aquí
+            
+            # Solo marcar has_cost_data como True si al menos un item tiene costo
+            if items_with_cost > 0:
+                has_cost_data = True
             
             # Calcular envío
             shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
             order_total = order_subtotal + shipping_amount
             
-            # Solo incluir pedidos con costo registrado y monto > 0
-            if has_cost_data and order_cost > 0 and order_total > 0:
+            # Incluir pedidos con costo registrado (aunque sea parcial) y monto > 0
+            # Cambio: permitir costo 0 para no perder pedidos editados
+            if has_cost_data and order_cost >= 0 and order_total > 0:
                 utility_amount = order_total - order_cost
                 utility_percent = (utility_amount / order_total) * 100 if order_total > 0 else 0
                 
@@ -305,7 +316,8 @@ def get_utility_by_week():
             # Calcular utilidad del pedido
             order_subtotal = 0
             order_cost = 0
-            has_cost_data = True
+            has_cost_data = False  # Cambiar a False inicialmente
+            items_with_cost = 0
             
             for item in order.items:
                 # Usar charged_qty siempre que exista
@@ -328,10 +340,13 @@ def get_utility_by_week():
                     if item_cost_value is not None:
                         item_cost = qty_to_charge * item_cost_value
                         order_cost += item_cost
-                    else:
-                        has_cost_data = False
+                        items_with_cost += 1
                 except Exception:
-                    has_cost_data = False
+                    pass  # No marcar has_cost_data = False aquí
+            
+            # Solo marcar has_cost_data como True si al menos un item tiene costo
+            if items_with_cost > 0:
+                has_cost_data = True
             
             # Calcular envío
             shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
@@ -346,8 +361,9 @@ def get_utility_by_week():
                 })
                 weeks_data[week_key]['orders_revenue'] += order_total
                 
-                # Si tiene datos de costo, calcular utilidad
-                if has_cost_data and order_cost > 0:
+                # Si tiene datos de costo (aunque sea parcial), calcular utilidad
+                # Cambio: permitir costo 0 para no perder pedidos editados
+                if has_cost_data and order_cost >= 0:
                     utility_amount = order_total - order_cost
                     weeks_data[week_key]['orders_utility'] += utility_amount
                     weeks_data[week_key]['orders_cost'] += order_cost
