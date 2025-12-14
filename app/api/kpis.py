@@ -30,6 +30,34 @@ def get_week_start(dt=None):
     week_start = dt_date - timedelta(days=days_since_monday)
     return week_start
 
+
+def get_last_completed_week():
+    """
+    Obtiene el rango de la última semana completada (lunes a domingo).
+    Si hoy es lunes, devuelve la semana pasada completa.
+    Si hoy es cualquier otro día, devuelve la semana que terminó el domingo pasado.
+    """
+    now = datetime.utcnow()
+    today = now.date()
+    
+    # Calcular días desde el lunes (0 = lunes, 6 = domingo)
+    days_since_monday = today.weekday()
+    
+    # Si hoy es lunes (días desde lunes = 0), la última semana completada terminó ayer (domingo)
+    # Si hoy es cualquier otro día, la última semana completada terminó el domingo pasado
+    if days_since_monday == 0:
+        # Hoy es lunes, la última semana completada terminó ayer (domingo)
+        last_sunday = today - timedelta(days=1)
+    else:
+        # Hoy es martes-domingo, la última semana completada terminó el domingo pasado
+        last_sunday = today - timedelta(days=days_since_monday + 1)
+    
+    # El lunes de la última semana completada es 6 días antes del domingo
+    last_week_start = last_sunday - timedelta(days=6)
+    last_week_end = last_sunday
+    
+    return last_week_start, last_week_end
+
 bp = Blueprint("kpis", __name__, url_prefix="/api/kpis")
 
 
@@ -95,13 +123,11 @@ def get_kpis():
     - Pedidos completados por vendedores (última semana e histórico)
     """
     try:
-        # Calcular rango de última semana (lunes a domingo)
-        now = datetime.utcnow()
-        current_week_start = get_week_start(now)
-        current_week_end = current_week_start + timedelta(days=6)
-        # Ajustar para incluir todo el día de domingo
-        current_week_end = datetime.combine(current_week_end, datetime.max.time())
-        current_week_start = datetime.combine(current_week_start, datetime.min.time())
+        # Calcular rango de última semana completada (lunes a domingo)
+        last_week_start_date, last_week_end_date = get_last_completed_week()
+        # Ajustar para incluir todo el día (desde inicio del lunes hasta fin del domingo)
+        last_week_start = datetime.combine(last_week_start_date, datetime.min.time())
+        last_week_end = datetime.combine(last_week_end_date, datetime.max.time())
         
         # Obtener todos los pedidos completados o emitidos
         all_orders = Order.query.filter(
@@ -118,7 +144,7 @@ def get_kpis():
                 if isinstance(order_date, date) and not isinstance(order_date, datetime):
                     order_date = datetime.combine(order_date, datetime.min.time())
                 
-                if current_week_start <= order_date <= current_week_end:
+                if last_week_start <= order_date <= last_week_end:
                     last_week_orders.append(order)
                 else:
                     historical_orders.append(order)
@@ -129,10 +155,10 @@ def get_kpis():
         # Calcular KPIs históricos (todos los pedidos)
         historical_stats = calculate_kpis_for_orders(all_orders)
         
-        # Nuevos clientes esta semana
+        # Nuevos clientes en la última semana completada
         new_customers_this_week = Customer.query.filter(
-            Customer.created_at >= current_week_start,
-            Customer.created_at <= current_week_end
+            Customer.created_at >= last_week_start,
+            Customer.created_at <= last_week_end
         ).count()
         
         # Total de clientes históricos
@@ -158,8 +184,8 @@ def get_kpis():
                 "completed_orders_by_seller": historical_stats['completed_orders_by_seller']
             },
             "week_range": {
-                "start": current_week_start.isoformat(),
-                "end": current_week_end.isoformat()
+                "start": last_week_start.isoformat(),
+                "end": last_week_end.isoformat()
             }
         })
     except Exception as e:
@@ -506,15 +532,14 @@ def get_best_products():
         )
         
         if filter_type == "last_week":
-            now = datetime.utcnow()
-            current_week_start = get_week_start(now)
-            current_week_end = current_week_start + timedelta(days=6)
-            current_week_end = datetime.combine(current_week_end, datetime.max.time())
-            current_week_start = datetime.combine(current_week_start, datetime.min.time())
+            # Usar la última semana completada
+            last_week_start_date, last_week_end_date = get_last_completed_week()
+            last_week_start = datetime.combine(last_week_start_date, datetime.min.time())
+            last_week_end = datetime.combine(last_week_end_date, datetime.max.time())
             
             orders_query = orders_query.filter(
-                Order.created_at >= current_week_start,
-                Order.created_at <= current_week_end
+                Order.created_at >= last_week_start,
+                Order.created_at <= last_week_end
             )
         
         orders = orders_query.all()
