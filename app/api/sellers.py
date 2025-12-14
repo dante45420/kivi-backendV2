@@ -464,8 +464,13 @@ def create_seller_payment(id):
         if not data:
             return jsonify({"error": "Datos no proporcionados"}), 400
         
-        amount = data.get('amount')
-        if not amount or amount <= 0:
+        # Convertir amount a número antes de validar
+        try:
+            amount = float(data.get('amount', 0))
+        except (ValueError, TypeError):
+            return jsonify({"error": "El monto debe ser un número válido"}), 400
+        
+        if amount <= 0:
             return jsonify({"error": "El monto debe ser mayor a 0"}), 400
         
         # Parsear fecha de forma segura
@@ -483,7 +488,7 @@ def create_seller_payment(id):
         
         payment = SellerPayment(
             seller_id=id,
-            amount=int(amount),
+            amount=int(round(amount)),  # Redondear y convertir a entero
             method=data.get('method'),
             reference=data.get('reference'),
             notes=data.get('notes'),
