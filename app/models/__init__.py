@@ -17,6 +17,9 @@ from .kivi_tip import KiviTip
 from .purchase import Purchase
 from .weekly_cost import WeeklyCost
 from .seller import Seller
+from .seller_payment import SellerPayment
+from .seller_bonus import SellerBonus
+from .seller_config import SellerConfig
 
 __all__ = [
     "Category",
@@ -34,5 +37,8 @@ __all__ = [
     "Purchase",
     "WeeklyCost",
     "Seller",
+    "SellerPayment",
+    "SellerBonus",
+    "SellerConfig",
 ]
 

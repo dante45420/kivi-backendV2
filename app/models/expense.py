@@ -21,6 +21,9 @@ class Expense(db.Model):
     # Indica si es un costo asociado a un vendedor (para pedidos completados con vendedor)
     is_seller_cost = db.Column(db.Boolean, default=False, nullable=False)
     
+    # Porcentaje de comisión usado para calcular este costo (si es costo de vendedor)
+    commission_percent = db.Column(db.Float, nullable=True)
+    
     description = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -34,6 +37,7 @@ class Expense(db.Model):
             "category": self.category,
             "amount": self.amount,
             "is_seller_cost": self.is_seller_cost,
+            "commission_percent": self.commission_percent,
             "description": self.description,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

@@ -60,7 +60,8 @@ def create_app():
         from app.models import (
             Category, Product, Customer, Order, OrderItem,
             Expense, Payment, PaymentAllocation, WeeklyOffer,
-            PriceHistory, ContentTemplate, KiviTip, WeeklyCost, Seller
+            PriceHistory, ContentTemplate, KiviTip, WeeklyCost, Seller,
+            SellerPayment, SellerBonus, SellerConfig
         )
         
         # Inicializar datos de prueba si es desarrollo
@@ -310,6 +311,143 @@ def run_migrations():
                     print(f"❌ Error en migración PostgreSQL (is_seller_cost): {e}")
                     import traceback
                     traceback.print_exc()
+            
+            # Migración 7: Columna 'commission_percent' en 'expenses'
+            try:
+                check_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='expenses' AND column_name='commission_percent'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Columna 'commission_percent' ya existe en expenses")
+                else:
+                    print("🔄 Agregando columna 'commission_percent' a expenses...")
+                    db.session.execute(text("ALTER TABLE expenses ADD COLUMN commission_percent FLOAT"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'commission_percent' agregada a expenses")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'commission_percent' ya existe en expenses")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (commission_percent): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 8: Tabla 'seller_payments'
+            try:
+                check_query = text("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_name='seller_payments'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Tabla 'seller_payments' ya existe")
+                else:
+                    print("🔄 Creando tabla 'seller_payments'...")
+                    db.session.execute(text("""
+                        CREATE TABLE seller_payments (
+                            id SERIAL PRIMARY KEY,
+                            seller_id INTEGER NOT NULL REFERENCES sellers(id),
+                            amount INTEGER NOT NULL,
+                            method VARCHAR(32),
+                            reference VARCHAR(120),
+                            notes TEXT,
+                            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_seller_payments_seller_id ON seller_payments(seller_id)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'seller_payments' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'seller_payments' ya existe")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (seller_payments): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 9: Tabla 'seller_bonuses'
+            try:
+                check_query = text("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_name='seller_bonuses'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Tabla 'seller_bonuses' ya existe")
+                else:
+                    print("🔄 Creando tabla 'seller_bonuses'...")
+                    db.session.execute(text("""
+                        CREATE TABLE seller_bonuses (
+                            id SERIAL PRIMARY KEY,
+                            seller_id INTEGER NOT NULL REFERENCES sellers(id),
+                            week_start DATE NOT NULL,
+                            orders_target INTEGER NOT NULL,
+                            orders_achieved INTEGER NOT NULL,
+                            commission_percent FLOAT NOT NULL,
+                            bonus_amount INTEGER NOT NULL,
+                            notes TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_seller_bonuses_seller_id ON seller_bonuses(seller_id)"))
+                    db.session.execute(text("CREATE INDEX idx_seller_bonuses_week_start ON seller_bonuses(week_start)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'seller_bonuses' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'seller_bonuses' ya existe")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (seller_bonuses): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 10: Tabla 'seller_config'
+            try:
+                check_query = text("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_name='seller_config'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Tabla 'seller_config' ya existe")
+                else:
+                    print("🔄 Creando tabla 'seller_config'...")
+                    db.session.execute(text("""
+                        CREATE TABLE seller_config (
+                            id SERIAL PRIMARY KEY,
+                            commission_percent FLOAT NOT NULL DEFAULT 10.0,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("INSERT INTO seller_config (commission_percent) VALUES (10.0)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'seller_config' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'seller_config' ya existe")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (seller_config): {e}")
+                    import traceback
+                    traceback.print_exc()
                     
         elif 'sqlite' in db_url.lower():
             # SQLite: verificar si existe antes de agregar
@@ -461,6 +599,119 @@ def run_migrations():
                         print(f"❌ Error en migración SQLite (is_seller_cost): {e}")
                         import traceback
                         traceback.print_exc()
+            
+            # Migración 7: Columna 'commission_percent' en 'expenses' (SQLite)
+            try:
+                db.session.execute(text("SELECT commission_percent FROM expenses LIMIT 1"))
+                print("✅ Columna 'commission_percent' ya existe en expenses")
+            except Exception:
+                try:
+                    print("🔄 Agregando columna 'commission_percent' a expenses...")
+                    db.session.execute(text("ALTER TABLE expenses ADD COLUMN commission_percent REAL"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'commission_percent' agregada a expenses")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "duplicate column" in error_str or "already exists" in error_str:
+                        print("✅ Columna 'commission_percent' ya existe en expenses")
+                    else:
+                        print(f"❌ Error en migración SQLite (commission_percent): {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Migración 8: Tabla 'seller_payments' (SQLite)
+            try:
+                db.session.execute(text("SELECT id FROM seller_payments LIMIT 1"))
+                print("✅ Tabla 'seller_payments' ya existe")
+            except Exception:
+                try:
+                    print("🔄 Creando tabla 'seller_payments'...")
+                    db.session.execute(text("""
+                        CREATE TABLE seller_payments (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            seller_id INTEGER NOT NULL REFERENCES sellers(id),
+                            amount INTEGER NOT NULL,
+                            method VARCHAR(32),
+                            reference VARCHAR(120),
+                            notes TEXT,
+                            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_seller_payments_seller_id ON seller_payments(seller_id)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'seller_payments' creada")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "already exists" in error_str or "duplicate" in error_str:
+                        print("✅ Tabla 'seller_payments' ya existe")
+                    else:
+                        print(f"❌ Error en migración SQLite (seller_payments): {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Migración 9: Tabla 'seller_bonuses' (SQLite)
+            try:
+                db.session.execute(text("SELECT id FROM seller_bonuses LIMIT 1"))
+                print("✅ Tabla 'seller_bonuses' ya existe")
+            except Exception:
+                try:
+                    print("🔄 Creando tabla 'seller_bonuses'...")
+                    db.session.execute(text("""
+                        CREATE TABLE seller_bonuses (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            seller_id INTEGER NOT NULL REFERENCES sellers(id),
+                            week_start DATE NOT NULL,
+                            orders_target INTEGER NOT NULL,
+                            orders_achieved INTEGER NOT NULL,
+                            commission_percent REAL NOT NULL,
+                            bonus_amount INTEGER NOT NULL,
+                            notes TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_seller_bonuses_seller_id ON seller_bonuses(seller_id)"))
+                    db.session.execute(text("CREATE INDEX idx_seller_bonuses_week_start ON seller_bonuses(week_start)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'seller_bonuses' creada")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "already exists" in error_str or "duplicate" in error_str:
+                        print("✅ Tabla 'seller_bonuses' ya existe")
+                    else:
+                        print(f"❌ Error en migración SQLite (seller_bonuses): {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Migración 10: Tabla 'seller_config' (SQLite)
+            try:
+                db.session.execute(text("SELECT id FROM seller_config LIMIT 1"))
+                print("✅ Tabla 'seller_config' ya existe")
+            except Exception:
+                try:
+                    print("🔄 Creando tabla 'seller_config'...")
+                    db.session.execute(text("""
+                        CREATE TABLE seller_config (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            commission_percent REAL NOT NULL DEFAULT 10.0,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("INSERT INTO seller_config (commission_percent) VALUES (10.0)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'seller_config' creada")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "already exists" in error_str or "duplicate" in error_str:
+                        print("✅ Tabla 'seller_config' ya existe")
+                    else:
+                        print(f"❌ Error en migración SQLite (seller_config): {e}")
+                        import traceback
+                        traceback.print_exc()
         else:
             # Otra base de datos, intentar método genérico
             # Migración 1: cost en order_items
@@ -585,6 +836,103 @@ def run_migrations():
                     print("✅ Columna 'is_seller_cost' ya existe en expenses")
                 else:
                     print(f"❌ Error en migración (is_seller_cost): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 7: Columna 'commission_percent' en 'expenses' (genérico)
+            try:
+                print("🔄 Agregando columna 'commission_percent' a expenses...")
+                db.session.execute(text("ALTER TABLE expenses ADD COLUMN commission_percent FLOAT"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'commission_percent' agregada a expenses")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'commission_percent' ya existe en expenses")
+                else:
+                    print(f"❌ Error en migración (commission_percent): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 8: Tabla 'seller_payments' (genérico)
+            try:
+                print("🔄 Creando tabla 'seller_payments'...")
+                db.session.execute(text("""
+                    CREATE TABLE seller_payments (
+                        id INTEGER PRIMARY KEY,
+                        seller_id INTEGER NOT NULL,
+                        amount INTEGER NOT NULL,
+                        method VARCHAR(32),
+                        reference VARCHAR(120),
+                        notes TEXT,
+                        date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX idx_seller_payments_seller_id ON seller_payments(seller_id)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: tabla 'seller_payments' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'seller_payments' ya existe")
+                else:
+                    print(f"❌ Error en migración (seller_payments): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 9: Tabla 'seller_bonuses' (genérico)
+            try:
+                print("🔄 Creando tabla 'seller_bonuses'...")
+                db.session.execute(text("""
+                    CREATE TABLE seller_bonuses (
+                        id INTEGER PRIMARY KEY,
+                        seller_id INTEGER NOT NULL,
+                        week_start DATE NOT NULL,
+                        orders_target INTEGER NOT NULL,
+                        orders_achieved INTEGER NOT NULL,
+                        commission_percent FLOAT NOT NULL,
+                        bonus_amount INTEGER NOT NULL,
+                        notes TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX idx_seller_bonuses_seller_id ON seller_bonuses(seller_id)"))
+                db.session.execute(text("CREATE INDEX idx_seller_bonuses_week_start ON seller_bonuses(week_start)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: tabla 'seller_bonuses' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'seller_bonuses' ya existe")
+                else:
+                    print(f"❌ Error en migración (seller_bonuses): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 10: Tabla 'seller_config' (genérico)
+            try:
+                print("🔄 Creando tabla 'seller_config'...")
+                db.session.execute(text("""
+                    CREATE TABLE seller_config (
+                        id INTEGER PRIMARY KEY,
+                        commission_percent FLOAT NOT NULL DEFAULT 10.0,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("INSERT INTO seller_config (commission_percent) VALUES (10.0)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: tabla 'seller_config' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'seller_config' ya existe")
+                else:
+                    print(f"❌ Error en migración (seller_config): {e}")
                     import traceback
                     traceback.print_exc()
     except Exception as e:
