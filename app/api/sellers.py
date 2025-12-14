@@ -13,14 +13,24 @@ bp = Blueprint("sellers", __name__, url_prefix="/api/sellers")
 
 def get_seller_commission_percent():
     """Obtiene el porcentaje de comisión configurado (por defecto 10%)"""
-    config = SellerConfig.query.first()
-    if config:
-        return config.commission_percent
-    # Si no existe configuración, crear una por defecto
-    default_config = SellerConfig(commission_percent=10.0)
-    db.session.add(default_config)
-    db.session.commit()
-    return 10.0
+    try:
+        config = SellerConfig.query.first()
+        if config:
+            return config.commission_percent
+        # Si no existe configuración, crear una por defecto
+        try:
+            default_config = SellerConfig(commission_percent=10.0)
+            db.session.add(default_config)
+            db.session.commit()
+            return 10.0
+        except Exception as e:
+            # Si falla al crear, retornar el valor por defecto sin crear
+            print(f"⚠️  Advertencia: No se pudo crear configuración de vendedores: {e}")
+            return 10.0
+    except Exception as e:
+        # Si la tabla no existe aún, retornar valor por defecto
+        print(f"⚠️  Advertencia: Tabla seller_config no disponible: {e}")
+        return 10.0
 
 
 def calculate_order_total_for_seller(order):
@@ -222,36 +232,63 @@ def get_sellers_summary():
 @bp.route("/config", methods=["GET"])
 def get_seller_config():
     """Obtiene la configuración de vendedores (porcentaje de comisión)"""
-    config = SellerConfig.query.first()
-    if not config:
-        # Crear configuración por defecto
-        config = SellerConfig(commission_percent=10.0)
-        db.session.add(config)
-        db.session.commit()
-    return jsonify(config.to_dict())
+    try:
+        config = SellerConfig.query.first()
+        if not config:
+            # Crear configuración por defecto
+            try:
+                config = SellerConfig(commission_percent=10.0)
+                db.session.add(config)
+                db.session.commit()
+            except Exception as e:
+                # Si falla al crear, retornar valor por defecto
+                print(f"⚠️  Advertencia: No se pudo crear configuración: {e}")
+                return jsonify({
+                    "id": 1,
+                    "commission_percent": 10.0,
+                    "updated_at": None
+                })
+        return jsonify(config.to_dict())
+    except Exception as e:
+        # Si la tabla no existe, retornar valor por defecto
+        print(f"⚠️  Advertencia: Error obteniendo configuración: {e}")
+        return jsonify({
+            "id": 1,
+            "commission_percent": 10.0,
+            "updated_at": None
+        })
 
 
 @bp.route("/config", methods=["PUT"])
 def update_seller_config():
     """Actualiza la configuración de vendedores (porcentaje de comisión)"""
-    data = request.json
-    commission_percent = data.get('commission_percent')
-    
-    if commission_percent is None:
-        return jsonify({"error": "commission_percent es requerido"}), 400
-    
-    if commission_percent < 0 or commission_percent > 100:
-        return jsonify({"error": "El porcentaje debe estar entre 0 y 100"}), 400
-    
-    config = SellerConfig.query.first()
-    if not config:
-        config = SellerConfig(commission_percent=commission_percent)
-        db.session.add(config)
-    else:
-        config.commission_percent = commission_percent
-    
-    db.session.commit()
-    return jsonify(config.to_dict())
+    try:
+        data = request.json
+        commission_percent = data.get('commission_percent')
+        
+        if commission_percent is None:
+            return jsonify({"error": "commission_percent es requerido"}), 400
+        
+        if commission_percent < 0 or commission_percent > 100:
+            return jsonify({"error": "El porcentaje debe estar entre 0 y 100"}), 400
+        
+        config = SellerConfig.query.first()
+        if not config:
+            try:
+                config = SellerConfig(commission_percent=commission_percent)
+                db.session.add(config)
+            except Exception as e:
+                return jsonify({"error": f"No se pudo crear configuración: {str(e)}"}), 500
+        else:
+            config.commission_percent = commission_percent
+        
+        db.session.commit()
+        return jsonify(config.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error actualizando configuración: {str(e)}"}), 500
 
 
 @bp.route("/create-costs", methods=["POST"])

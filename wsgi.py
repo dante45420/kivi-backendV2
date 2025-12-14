@@ -110,12 +110,27 @@ def create_app():
 
 
 def run_migrations():
-    """Ejecuta migraciones de base de datos automáticamente"""
+    """
+    Ejecuta migraciones de base de datos automáticamente al iniciar la aplicación.
+    
+    ORDEN DE MIGRACIONES (importante para dependencias):
+    1. cost en order_items
+    2. price_per_charged_unit en purchases
+    3. Tabla weekly_costs
+    4. Tabla sellers (debe crearse antes de las migraciones 5, 8, 9)
+    5. seller_id en orders (depende de sellers)
+    6. is_seller_cost en expenses
+    7. commission_percent en expenses
+    8. Tabla seller_payments (depende de sellers)
+    9. Tabla seller_bonuses (depende de sellers)
+    10. Tabla seller_config (independiente)
+    """
     from sqlalchemy import text
     
     try:
         db_url = str(db.engine.url)
         print(f"🔄 Verificando migraciones para: {db_url}")
+        print("📋 Orden de ejecución: 1→2→3→4→5→6→7→8→9→10")
         
         # Migración 1: Columna 'cost' en order_items
         if 'postgresql' in db_url.lower():
@@ -339,6 +354,8 @@ def run_migrations():
                     traceback.print_exc()
             
             # Migración 8: Tabla 'seller_payments'
+            # IMPORTANTE: Esta migración depende de la Migración 4 (tabla 'sellers')
+            # Asegúrate de que 'sellers' exista antes de ejecutar esta migración
             try:
                 check_query = text("""
                     SELECT table_name 
@@ -350,19 +367,46 @@ def run_migrations():
                 if result:
                     print("✅ Tabla 'seller_payments' ya existe")
                 else:
-                    print("🔄 Creando tabla 'seller_payments'...")
-                    db.session.execute(text("""
-                        CREATE TABLE seller_payments (
-                            id SERIAL PRIMARY KEY,
-                            seller_id INTEGER NOT NULL REFERENCES sellers(id),
-                            amount INTEGER NOT NULL,
-                            method VARCHAR(32),
-                            reference VARCHAR(120),
-                            notes TEXT,
-                            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """))
+                    # Verificar que la tabla sellers existe antes de crear la foreign key
+                    check_sellers = text("""
+                        SELECT table_name 
+                        FROM information_schema.tables 
+                        WHERE table_name='sellers'
+                    """)
+                    sellers_exists = db.session.execute(check_sellers).fetchone()
+                    if not sellers_exists:
+                        print("⚠️  Advertencia: Tabla 'sellers' no existe. Creando 'seller_payments' sin foreign key constraint...")
+                        db.session.execute(text("""
+                            CREATE TABLE seller_payments (
+                                id SERIAL PRIMARY KEY,
+                                seller_id INTEGER NOT NULL,
+                                amount INTEGER NOT NULL,
+                                method VARCHAR(32),
+                                reference VARCHAR(120),
+                                notes TEXT,
+                                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
+                        # Agregar foreign key después si es posible
+                        try:
+                            db.session.execute(text("ALTER TABLE seller_payments ADD CONSTRAINT fk_seller_payments_seller_id FOREIGN KEY (seller_id) REFERENCES sellers(id)"))
+                        except Exception:
+                            print("⚠️  No se pudo agregar foreign key constraint. Se agregará después.")
+                    else:
+                        print("🔄 Creando tabla 'seller_payments'...")
+                        db.session.execute(text("""
+                            CREATE TABLE seller_payments (
+                                id SERIAL PRIMARY KEY,
+                                seller_id INTEGER NOT NULL REFERENCES sellers(id),
+                                amount INTEGER NOT NULL,
+                                method VARCHAR(32),
+                                reference VARCHAR(120),
+                                notes TEXT,
+                                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
                     db.session.execute(text("CREATE INDEX idx_seller_payments_seller_id ON seller_payments(seller_id)"))
                     db.session.commit()
                     print("✅ Migración ejecutada: tabla 'seller_payments' creada")
@@ -377,6 +421,7 @@ def run_migrations():
                     traceback.print_exc()
             
             # Migración 9: Tabla 'seller_bonuses'
+            # IMPORTANTE: Esta migración depende de la Migración 4 (tabla 'sellers')
             try:
                 check_query = text("""
                     SELECT table_name 
@@ -388,20 +433,48 @@ def run_migrations():
                 if result:
                     print("✅ Tabla 'seller_bonuses' ya existe")
                 else:
-                    print("🔄 Creando tabla 'seller_bonuses'...")
-                    db.session.execute(text("""
-                        CREATE TABLE seller_bonuses (
-                            id SERIAL PRIMARY KEY,
-                            seller_id INTEGER NOT NULL REFERENCES sellers(id),
-                            week_start DATE NOT NULL,
-                            orders_target INTEGER NOT NULL,
-                            orders_achieved INTEGER NOT NULL,
-                            commission_percent FLOAT NOT NULL,
-                            bonus_amount INTEGER NOT NULL,
-                            notes TEXT,
-                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                        )
-                    """))
+                    # Verificar que la tabla sellers existe antes de crear la foreign key
+                    check_sellers = text("""
+                        SELECT table_name 
+                        FROM information_schema.tables 
+                        WHERE table_name='sellers'
+                    """)
+                    sellers_exists = db.session.execute(check_sellers).fetchone()
+                    if not sellers_exists:
+                        print("⚠️  Advertencia: Tabla 'sellers' no existe. Creando 'seller_bonuses' sin foreign key constraint...")
+                        db.session.execute(text("""
+                            CREATE TABLE seller_bonuses (
+                                id SERIAL PRIMARY KEY,
+                                seller_id INTEGER NOT NULL,
+                                week_start DATE NOT NULL,
+                                orders_target INTEGER NOT NULL,
+                                orders_achieved INTEGER NOT NULL,
+                                commission_percent FLOAT NOT NULL,
+                                bonus_amount INTEGER NOT NULL,
+                                notes TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
+                        # Agregar foreign key después si es posible
+                        try:
+                            db.session.execute(text("ALTER TABLE seller_bonuses ADD CONSTRAINT fk_seller_bonuses_seller_id FOREIGN KEY (seller_id) REFERENCES sellers(id)"))
+                        except Exception:
+                            print("⚠️  No se pudo agregar foreign key constraint. Se agregará después.")
+                    else:
+                        print("🔄 Creando tabla 'seller_bonuses'...")
+                        db.session.execute(text("""
+                            CREATE TABLE seller_bonuses (
+                                id SERIAL PRIMARY KEY,
+                                seller_id INTEGER NOT NULL REFERENCES sellers(id),
+                                week_start DATE NOT NULL,
+                                orders_target INTEGER NOT NULL,
+                                orders_achieved INTEGER NOT NULL,
+                                commission_percent FLOAT NOT NULL,
+                                bonus_amount INTEGER NOT NULL,
+                                notes TEXT,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                            )
+                        """))
                     db.session.execute(text("CREATE INDEX idx_seller_bonuses_seller_id ON seller_bonuses(seller_id)"))
                     db.session.execute(text("CREATE INDEX idx_seller_bonuses_week_start ON seller_bonuses(week_start)"))
                     db.session.commit()

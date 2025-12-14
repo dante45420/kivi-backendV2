@@ -5,7 +5,7 @@ Métricas básicas del negocio
 from datetime import datetime, timedelta, date
 from flask import Blueprint, jsonify, request
 from ..db import db
-from ..models import Order, OrderItem, Customer, WeeklyCost, Product, Product
+from ..models import Order, OrderItem, Customer, WeeklyCost, Product, Expense
 from ..utils.shipping import calculate_shipping
 from sqlalchemy import func
 
@@ -448,6 +448,7 @@ def get_utility_by_week():
         # Obtener costos semanales (manejar caso donde la tabla no existe aún)
         costs_by_week = {}
         try:
+            # Costos semanales (WeeklyCost)
             all_weekly_costs = WeeklyCost.query.all()
             
             for cost in all_weekly_costs:
@@ -474,6 +475,51 @@ def get_utility_by_week():
             # Si la tabla no existe o hay un error, simplemente no incluir costos
             print(f"⚠️  Advertencia: No se pudieron cargar costos semanales: {cost_error}")
             # Continuar sin costos
+        
+        # Agregar costos de vendedores (Expense con is_seller_cost=True)
+        try:
+            # Obtener todos los expenses que son costos de vendedores
+            seller_expenses = Expense.query.filter_by(is_seller_cost=True).all()
+            
+            for expense in seller_expenses:
+                # Obtener el pedido asociado para determinar la semana
+                order = Order.query.get(expense.order_id)
+                if not order or not order.created_at:
+                    continue
+                
+                # Obtener el lunes de la semana del pedido
+                try:
+                    week_start = get_week_start(order.created_at)
+                    week_key = week_start.isoformat() if week_start else None
+                    if not week_key:
+                        continue
+                except Exception as e:
+                    print(f"⚠️  Error calculando semana para expense {expense.id}: {e}")
+                    continue
+                
+                if week_key not in costs_by_week:
+                    costs_by_week[week_key] = {
+                        'categories': {},
+                        'total': 0
+                    }
+                
+                # Usar la categoría del expense o "Comisión Vendedor" por defecto
+                category = expense.category if expense.category else 'Comisión Vendedor'
+                
+                if category not in costs_by_week[week_key]['categories']:
+                    costs_by_week[week_key]['categories'][category] = {
+                        'amount': 0,
+                        'count': 0
+                    }
+                
+                costs_by_week[week_key]['categories'][category]['amount'] += expense.amount
+                costs_by_week[week_key]['categories'][category]['count'] += 1
+                costs_by_week[week_key]['total'] += expense.amount
+        except Exception as expense_error:
+            # Si hay un error, simplemente no incluir costos de vendedores
+            print(f"⚠️  Advertencia: No se pudieron cargar costos de vendedores: {expense_error}")
+            import traceback
+            traceback.print_exc()
         
         # Combinar datos de semanas
         result = []
