@@ -439,34 +439,71 @@ def get_seller_debt(id):
 @bp.route("/<int:id>/payments", methods=["GET"])
 def get_seller_payments(id):
     """Obtiene todos los pagos de un vendedor"""
-    seller = Seller.query.get_or_404(id)
-    payments = SellerPayment.query.filter_by(seller_id=id).order_by(SellerPayment.date.desc()).all()
-    return jsonify([p.to_dict() for p in payments])
+    try:
+        seller = Seller.query.get_or_404(id)
+        payments = SellerPayment.query.filter_by(seller_id=id).order_by(SellerPayment.date.desc()).all()
+        return jsonify([p.to_dict() for p in payments])
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error obteniendo pagos del vendedor: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error obteniendo pagos: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
+        }), 500
 
 
 @bp.route("/<int:id>/payments", methods=["POST"])
 def create_seller_payment(id):
     """Registra un pago a un vendedor"""
-    seller = Seller.query.get_or_404(id)
-    data = request.json
-    
-    amount = data.get('amount')
-    if not amount or amount <= 0:
-        return jsonify({"error": "El monto debe ser mayor a 0"}), 400
-    
-    payment = SellerPayment(
-        seller_id=id,
-        amount=int(amount),
-        method=data.get('method'),
-        reference=data.get('reference'),
-        notes=data.get('notes'),
-        date=datetime.fromisoformat(data['date']) if data.get('date') else datetime.utcnow()
-    )
-    
-    db.session.add(payment)
-    db.session.commit()
-    
-    return jsonify(payment.to_dict()), 201
+    try:
+        seller = Seller.query.get_or_404(id)
+        data = request.json
+        
+        if not data:
+            return jsonify({"error": "Datos no proporcionados"}), 400
+        
+        amount = data.get('amount')
+        if not amount or amount <= 0:
+            return jsonify({"error": "El monto debe ser mayor a 0"}), 400
+        
+        # Parsear fecha de forma segura
+        payment_date = datetime.utcnow()
+        if data.get('date'):
+            try:
+                # Intentar parsear como ISO format
+                if isinstance(data['date'], str):
+                    payment_date = datetime.fromisoformat(data['date'].replace('Z', '+00:00'))
+                else:
+                    payment_date = datetime.utcnow()
+            except (ValueError, AttributeError):
+                # Si falla, usar fecha actual
+                payment_date = datetime.utcnow()
+        
+        payment = SellerPayment(
+            seller_id=id,
+            amount=int(amount),
+            method=data.get('method'),
+            reference=data.get('reference'),
+            notes=data.get('notes'),
+            date=payment_date
+        )
+        
+        db.session.add(payment)
+        db.session.commit()
+        
+        return jsonify(payment.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error creando pago a vendedor: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error registrando pago: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
+        }), 500
 
 
 @bp.route("/summary/week", methods=["GET"])
