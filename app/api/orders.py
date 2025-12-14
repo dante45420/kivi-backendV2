@@ -187,12 +187,22 @@ def create_order():
             db.session.add(customer)
             db.session.flush()  # Para obtener el ID
     
+    # Crear o buscar vendedor (opcional)
+    seller = None
+    seller_id = data.get("seller_id")
+    if seller_id:
+        from ..models import Seller
+        seller = Seller.query.get(seller_id)
+        if not seller:
+            return jsonify({"error": "Vendedor no encontrado"}), 400
+    
     # Crear orden
     order = Order(
         status="draft",
         source=data.get("source", "manual"),
         shipping_type=data.get("shipping_type", "normal"),
         notes=data.get("notes"),
+        seller_id=seller_id if seller_id else None
     )
     
     db.session.add(order)
