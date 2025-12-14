@@ -5,8 +5,9 @@ Métricas básicas del negocio
 from datetime import datetime, timedelta, date
 from flask import Blueprint, jsonify, request
 from ..db import db
-from ..models import Order, OrderItem, Customer, WeeklyCost
+from ..models import Order, OrderItem, Customer, WeeklyCost, Product, Product
 from ..utils.shipping import calculate_shipping
+from sqlalchemy import func
 
 
 def get_week_start(dt=None):
@@ -32,144 +33,194 @@ def get_week_start(dt=None):
 bp = Blueprint("kpis", __name__, url_prefix="/api/kpis")
 
 
+def calculate_order_total(order):
+    """Calcula el total de un pedido usando la misma lógica que get_customer_debt"""
+    order_subtotal = 0
+    order_cost = 0
+    has_cost_data = False
+    items_with_cost = 0
+    
+    for item in order.items:
+        # Usar charged_qty siempre que exista
+        if item.charged_qty is not None:
+            qty_to_charge = item.charged_qty
+        else:
+            qty_to_charge = item.qty
+        
+        # Usar unit_price del item, o el sale_price del producto si no existe
+        unit_price = item.unit_price
+        if not unit_price and item.product:
+            unit_price = item.product.sale_price or 0
+        
+        item_revenue = round(qty_to_charge * (unit_price or 0))
+        order_subtotal += item_revenue
+        
+        # Calcular costo si está registrado
+        try:
+            item_cost_value = getattr(item, 'cost', None)
+            if item_cost_value is not None:
+                item_cost = qty_to_charge * item_cost_value
+                order_cost += item_cost
+                items_with_cost += 1
+        except Exception:
+            pass
+    
+    if items_with_cost > 0:
+        has_cost_data = True
+    
+    # Calcular envío
+    shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
+    order_total = order_subtotal + shipping_amount
+    
+    return {
+        'order_total': order_total,
+        'order_subtotal': order_subtotal,
+        'shipping_amount': shipping_amount,
+        'order_cost': order_cost,
+        'has_cost_data': has_cost_data,
+        'utility_amount': (order_total - order_cost) if has_cost_data and order_cost >= 0 else None,
+        'utility_percent': ((order_total - order_cost) / order_total * 100) if has_cost_data and order_cost >= 0 and order_total > 0 else None
+    }
+
+
 @bp.route("", methods=["GET"])
 def get_kpis():
     """
-    Obtiene KPIs simplificados:
-    - Promedio de tamaño de pedido en plata (usando conversiones)
-    - Número total de clientes
-    - Número de pedidos totales (con monto facturado > 0)
-    - Utilidad promedio por pedido (en porcentaje y en plata, usando cost en order_items)
-    - Número de pedidos promedio por semana (últimos 30 días / 4)
+    Obtiene KPIs con datos de última semana (lunes-domingo) e históricos:
+    - Promedio de tamaño de pedido (última semana e histórico)
+    - Nuevos clientes esta semana e histórico
+    - Número de pedidos (última semana e histórico)
+    - Utilidad promedio por pedido (última semana e histórico)
+    - Monto total facturado (última semana e histórico)
+    - Pedidos completados por vendedores (última semana e histórico)
     """
     try:
-        # 1. Número total de clientes
-        total_customers = Customer.query.count()
+        # Calcular rango de última semana (lunes a domingo)
+        now = datetime.utcnow()
+        current_week_start = get_week_start(now)
+        current_week_end = current_week_start + timedelta(days=6)
+        # Ajustar para incluir todo el día de domingo
+        current_week_end = datetime.combine(current_week_end, datetime.max.time())
+        current_week_start = datetime.combine(current_week_start, datetime.min.time())
         
-        # 2. Pedidos con monto facturado > 0 (completed o emitted)
-        # Calcular el total de cada pedido usando la misma lógica que get_customer_debt
-        orders_with_total = []
+        # Obtener todos los pedidos completados o emitidos
         all_orders = Order.query.filter(
             Order.status.in_(['completed', 'emitted'])
         ).all()
         
-        total_orders_count = 0
-        total_revenue = 0
-        orders_with_utility = []
+        # Separar pedidos de última semana e históricos
+        last_week_orders = []
+        historical_orders = []
         
         for order in all_orders:
-            # Calcular subtotal usando charged_qty si existe (para conversiones)
-            order_subtotal = 0
-            order_cost = 0
-            has_cost_data = False  # Cambiar a False inicialmente
-            items_with_cost = 0
-            
-            for item in order.items:
-                # Usar charged_qty siempre que exista (independientemente del estado del pedido)
-                if item.charged_qty is not None:
-                    qty_to_charge = item.charged_qty
+            if order.created_at:
+                order_date = order.created_at
+                if isinstance(order_date, date) and not isinstance(order_date, datetime):
+                    order_date = datetime.combine(order_date, datetime.min.time())
+                
+                if current_week_start <= order_date <= current_week_end:
+                    last_week_orders.append(order)
                 else:
-                    qty_to_charge = item.qty
-                
-                # Usar unit_price del item, o el sale_price del producto si no existe
-                unit_price = item.unit_price
-                if not unit_price and item.product:
-                    unit_price = item.product.sale_price or 0
-                
-                item_revenue = round(qty_to_charge * (unit_price or 0))
-                order_subtotal += item_revenue
-                
-                # Calcular costo si está registrado (manejar caso donde columna no existe)
-                # Cambio: permitir que algunos items tengan costo y otros no (costo parcial)
-                try:
-                    item_cost_value = getattr(item, 'cost', None)
-                    if item_cost_value is not None:
-                        item_cost = qty_to_charge * item_cost_value
-                        order_cost += item_cost
-                        items_with_cost += 1
-                except Exception:
-                    # Si la columna no existe aún, no tiene datos de costo
-                    pass  # No marcar has_cost_data = False aquí
-            
-            # Solo marcar has_cost_data como True si al menos un item tiene costo
-            if items_with_cost > 0:
-                has_cost_data = True
-            
-            # Calcular envío
-            shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
-            order_total = order_subtotal + shipping_amount
-            
-            # Solo contar pedidos con monto > 0
-            if order_total > 0:
-                total_orders_count += 1
-                total_revenue += order_total
-                
-                # Si tiene datos de costo (aunque sea parcial), calcular utilidad
-                # Cambio: incluir pedidos con costo parcial para no perderlos de las estadísticas
-                if has_cost_data and order_cost >= 0:  # Permitir costo 0 también
-                    utility_amount = order_total - order_cost
-                    utility_percent = (utility_amount / order_total) * 100 if order_total > 0 else 0
-                    orders_with_utility.append({
-                        'utility_amount': utility_amount,
-                        'utility_percent': utility_percent
-                    })
+                    historical_orders.append(order)
         
-        # 3. Promedio de tamaño de pedido en plata
-        avg_order_value = total_revenue / total_orders_count if total_orders_count > 0 else 0
+        # Calcular KPIs para última semana
+        last_week_stats = calculate_kpis_for_orders(last_week_orders)
         
-        # 4. Utilidad promedio por pedido (solo pedidos con costo registrado)
-        avg_utility_percent = 0
-        avg_utility_amount = 0
-        if orders_with_utility:
-            avg_utility_percent = sum(o['utility_percent'] for o in orders_with_utility) / len(orders_with_utility)
-            avg_utility_amount = sum(o['utility_amount'] for o in orders_with_utility) / len(orders_with_utility)
+        # Calcular KPIs históricos (todos los pedidos)
+        historical_stats = calculate_kpis_for_orders(all_orders)
         
-        # 5. Número de pedidos promedio por semana (últimos 30 días)
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-        recent_orders = Order.query.filter(
-            Order.created_at >= thirty_days_ago,
-            Order.status.in_(['completed', 'emitted'])
-        ).all()
+        # Nuevos clientes esta semana
+        new_customers_this_week = Customer.query.filter(
+            Customer.created_at >= current_week_start,
+            Customer.created_at <= current_week_end
+        ).count()
         
-        # Calcular total de pedidos con monto > 0 en los últimos 30 días
-        recent_orders_count = 0
-        for order in recent_orders:
-            order_subtotal = 0
-            for item in order.items:
-                # Usar charged_qty siempre que exista (independientemente del estado del pedido)
-                if item.charged_qty is not None:
-                    qty_to_charge = item.charged_qty
-                else:
-                    qty_to_charge = item.qty
-                
-                unit_price = item.unit_price
-                if not unit_price and item.product:
-                    unit_price = item.product.sale_price or 0
-                
-                item_revenue = round(qty_to_charge * (unit_price or 0))
-                order_subtotal += item_revenue
-            
-            shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
-            order_total = order_subtotal + shipping_amount
-            
-            if order_total > 0:
-                recent_orders_count += 1
-        
-        # Promedio por semana = pedidos últimos 30 días / 4
-        avg_orders_per_week = recent_orders_count / 4 if recent_orders_count > 0 else 0
+        # Total de clientes históricos
+        total_customers_historical = Customer.query.count()
         
         return jsonify({
-            "avg_order_value": round(avg_order_value),
-            "total_customers": total_customers,
-            "total_orders": total_orders_count,
-            "avg_utility_percent": round(avg_utility_percent, 2),
-            "avg_utility_amount": round(avg_utility_amount),
-            "avg_orders_per_week": round(avg_orders_per_week, 2)
+            "last_week": {
+                "avg_order_value": last_week_stats['avg_order_value'],
+                "new_customers": new_customers_this_week,
+                "total_orders": last_week_stats['total_orders'],
+                "avg_utility_percent": last_week_stats['avg_utility_percent'],
+                "avg_utility_amount": last_week_stats['avg_utility_amount'],
+                "total_revenue": last_week_stats['total_revenue'],
+                "completed_orders_by_seller": last_week_stats['completed_orders_by_seller']
+            },
+            "historical": {
+                "avg_order_value": historical_stats['avg_order_value'],
+                "total_customers": total_customers_historical,
+                "total_orders": historical_stats['total_orders'],
+                "avg_utility_percent": historical_stats['avg_utility_percent'],
+                "avg_utility_amount": historical_stats['avg_utility_amount'],
+                "total_revenue": historical_stats['total_revenue'],
+                "completed_orders_by_seller": historical_stats['completed_orders_by_seller']
+            },
+            "week_range": {
+                "start": current_week_start.isoformat(),
+                "end": current_week_end.isoformat()
+            }
         })
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": f"Error calculando KPIs: {str(e)}"}), 500
+
+
+def calculate_kpis_for_orders(orders):
+    """Calcula KPIs para una lista de pedidos"""
+    total_orders_count = 0
+    total_revenue = 0
+    orders_with_utility = []
+    completed_orders_by_seller = {}  # {seller_id: count}
+    
+    for order in orders:
+        order_data = calculate_order_total(order)
+        order_total = order_data['order_total']
+        
+        # Solo contar pedidos con monto > 0
+        if order_total > 0:
+            total_orders_count += 1
+            total_revenue += order_total
+            
+            # Si tiene datos de costo, calcular utilidad
+            if order_data['has_cost_data'] and order_data['order_cost'] >= 0:
+                if order_data['utility_amount'] is not None:
+                    orders_with_utility.append({
+                        'utility_amount': order_data['utility_amount'],
+                        'utility_percent': order_data['utility_percent'] or 0
+                    })
+            
+            # Contar pedidos completados por vendedor (si existe seller_id)
+            if order.status == 'completed':
+                try:
+                    seller_id = getattr(order, 'seller_id', None)
+                    if seller_id:
+                        if seller_id not in completed_orders_by_seller:
+                            completed_orders_by_seller[seller_id] = 0
+                        completed_orders_by_seller[seller_id] += 1
+                except Exception:
+                    pass
+    
+    # Promedio de tamaño de pedido
+    avg_order_value = total_revenue / total_orders_count if total_orders_count > 0 else 0
+    
+    # Utilidad promedio por pedido
+    avg_utility_percent = 0
+    avg_utility_amount = 0
+    if orders_with_utility:
+        avg_utility_percent = sum(o['utility_percent'] for o in orders_with_utility) / len(orders_with_utility)
+        avg_utility_amount = sum(o['utility_amount'] for o in orders_with_utility) / len(orders_with_utility)
+    
+    return {
+        'avg_order_value': round(avg_order_value),
+        'total_orders': total_orders_count,
+        'avg_utility_percent': round(avg_utility_percent, 2),
+        'avg_utility_amount': round(avg_utility_amount),
+        'total_revenue': round(total_revenue),
+        'completed_orders_by_seller': completed_orders_by_seller
+    }
 
 
 @bp.route("/utility-details", methods=["GET"])
@@ -437,4 +488,99 @@ def get_utility_by_week():
             "error": f"Error obteniendo utilidad por semana: {str(e)}",
             "details": error_trace if request.args.get("debug") == "true" else None
         }), 500
+
+
+@bp.route("/best-products", methods=["GET"])
+def get_best_products():
+    """
+    Obtiene los mejores productos ordenados por monto facturado.
+    Puede filtrarse por última semana o histórico.
+    """
+    try:
+        # Obtener parámetro de filtro (last_week o historical)
+        filter_type = request.args.get("filter", "historical")  # Por defecto histórico
+        
+        # Calcular rango de última semana si es necesario
+        orders_query = Order.query.filter(
+            Order.status.in_(['completed', 'emitted'])
+        )
+        
+        if filter_type == "last_week":
+            now = datetime.utcnow()
+            current_week_start = get_week_start(now)
+            current_week_end = current_week_start + timedelta(days=6)
+            current_week_end = datetime.combine(current_week_end, datetime.max.time())
+            current_week_start = datetime.combine(current_week_start, datetime.min.time())
+            
+            orders_query = orders_query.filter(
+                Order.created_at >= current_week_start,
+                Order.created_at <= current_week_end
+            )
+        
+        orders = orders_query.all()
+        
+        # Agrupar productos por monto facturado
+        products_revenue = {}  # {product_id: {'name': ..., 'revenue': ..., 'qty': ..., 'orders': set()}}
+        
+        for order in orders:
+            order_data = calculate_order_total(order)
+            if order_data['order_total'] <= 0:
+                continue
+            
+            for item in order.items:
+                product_id = item.product_id
+                if not product_id:
+                    continue
+                
+                # Usar charged_qty si existe
+                if item.charged_qty is not None:
+                    qty_to_charge = item.charged_qty
+                else:
+                    qty_to_charge = item.qty
+                
+                # Precio unitario
+                unit_price = item.unit_price
+                if not unit_price and item.product:
+                    unit_price = item.product.sale_price or 0
+                
+                # Monto facturado de este item
+                item_revenue = round(qty_to_charge * (unit_price or 0))
+                
+                if product_id not in products_revenue:
+                    product = item.product
+                    products_revenue[product_id] = {
+                        'product_id': product_id,
+                        'product_name': product.name if product else 'Producto desconocido',
+                        'revenue': 0,
+                        'qty': 0,
+                        'orders': set()
+                    }
+                
+                products_revenue[product_id]['revenue'] += item_revenue
+                products_revenue[product_id]['qty'] += qty_to_charge
+                products_revenue[product_id]['orders'].add(order.id)
+        
+        # Convertir a lista y ordenar por monto facturado
+        products_list = []
+        for product_id, data in products_revenue.items():
+            products_list.append({
+                'product_id': data['product_id'],
+                'product_name': data['product_name'],
+                'revenue': data['revenue'],
+                'qty': round(data['qty'], 2),
+                'orders_count': len(data['orders'])
+            })
+        
+        # Ordenar por monto facturado (mayor a menor)
+        products_list.sort(key=lambda x: x['revenue'], reverse=True)
+        
+        return jsonify({
+            'products': products_list,
+            'filter': filter_type,
+            'count': len(products_list)
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": f"Error obteniendo mejores productos: {str(e)}"}), 500
 

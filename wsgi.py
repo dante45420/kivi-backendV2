@@ -60,7 +60,7 @@ def create_app():
         from app.models import (
             Category, Product, Customer, Order, OrderItem,
             Expense, Payment, PaymentAllocation, WeeklyOffer,
-            PriceHistory, ContentTemplate, KiviTip, WeeklyCost
+            PriceHistory, ContentTemplate, KiviTip, WeeklyCost, Seller
         )
         
         # Inicializar datos de prueba si es desarrollo
@@ -73,6 +73,7 @@ def create_app():
             orders_bp, payments_bp, purchases_bp, kivi_bp, content_bp,
             weekly_offers_bp, auth_bp, images_bp, kpis_bp, weekly_costs_bp
         )
+        from app.api.sellers import bp as sellers_bp
         
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
         app.register_blueprint(categories_bp, url_prefix="/api/categories")
@@ -87,6 +88,7 @@ def create_app():
         app.register_blueprint(images_bp, url_prefix="/api/images")
         app.register_blueprint(kpis_bp)
         app.register_blueprint(weekly_costs_bp)
+        app.register_blueprint(sellers_bp)
     
     # Ruta de health check
     @app.route("/health")
@@ -211,6 +213,103 @@ def run_migrations():
                     print(f"❌ Error en migración PostgreSQL (weekly_costs): {e}")
                     import traceback
                     traceback.print_exc()
+            
+            # Migración 4: Tabla 'sellers'
+            try:
+                check_query = text("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_name='sellers'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Tabla 'sellers' ya existe")
+                else:
+                    # No existe, crearla
+                    print("🔄 Creando tabla 'sellers'...")
+                    db.session.execute(text("""
+                        CREATE TABLE sellers (
+                            id SERIAL PRIMARY KEY,
+                            name VARCHAR(120) NOT NULL,
+                            phone VARCHAR(40) UNIQUE,
+                            email VARCHAR(120),
+                            address VARCHAR(200),
+                            preferences TEXT,
+                            notes TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_sellers_name ON sellers(name)"))
+                    db.session.execute(text("CREATE INDEX idx_sellers_phone ON sellers(phone)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'sellers' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'sellers' ya existe")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (sellers): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 5: Columna 'seller_id' en 'orders'
+            try:
+                check_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='orders' AND column_name='seller_id'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Columna 'seller_id' ya existe en orders")
+                else:
+                    # No existe, agregarla
+                    print("🔄 Agregando columna 'seller_id' a orders...")
+                    db.session.execute(text("ALTER TABLE orders ADD COLUMN seller_id INTEGER REFERENCES sellers(id)"))
+                    db.session.execute(text("CREATE INDEX idx_orders_seller_id ON orders(seller_id)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'seller_id' agregada a orders")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'seller_id' ya existe en orders")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (seller_id): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 6: Columna 'is_seller_cost' en 'expenses'
+            try:
+                check_query = text("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name='expenses' AND column_name='is_seller_cost'
+                """)
+                result = db.session.execute(check_query).fetchone()
+                
+                if result:
+                    print("✅ Columna 'is_seller_cost' ya existe en expenses")
+                else:
+                    # No existe, agregarla
+                    print("🔄 Agregando columna 'is_seller_cost' a expenses...")
+                    db.session.execute(text("ALTER TABLE expenses ADD COLUMN is_seller_cost BOOLEAN NOT NULL DEFAULT FALSE"))
+                    db.session.execute(text("CREATE INDEX idx_expenses_is_seller_cost ON expenses(is_seller_cost)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'is_seller_cost' agregada a expenses")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'is_seller_cost' ya existe en expenses")
+                else:
+                    print(f"❌ Error en migración PostgreSQL (is_seller_cost): {e}")
+                    import traceback
+                    traceback.print_exc()
                     
         elif 'sqlite' in db_url.lower():
             # SQLite: verificar si existe antes de agregar
@@ -286,6 +385,82 @@ def run_migrations():
                         print(f"❌ Error en migración SQLite (weekly_costs): {e}")
                         import traceback
                         traceback.print_exc()
+            
+            # Migración 4: Tabla 'sellers' (SQLite)
+            try:
+                db.session.execute(text("SELECT id FROM sellers LIMIT 1"))
+                print("✅ Tabla 'sellers' ya existe")
+            except Exception:
+                try:
+                    print("🔄 Creando tabla 'sellers'...")
+                    db.session.execute(text("""
+                        CREATE TABLE sellers (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name VARCHAR(120) NOT NULL,
+                            phone VARCHAR(40) UNIQUE,
+                            email VARCHAR(120),
+                            address VARCHAR(200),
+                            preferences TEXT,
+                            notes TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    """))
+                    db.session.execute(text("CREATE INDEX idx_sellers_name ON sellers(name)"))
+                    db.session.execute(text("CREATE INDEX idx_sellers_phone ON sellers(phone)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: tabla 'sellers' creada")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "already exists" in error_str or "duplicate" in error_str:
+                        print("✅ Tabla 'sellers' ya existe")
+                    else:
+                        print(f"❌ Error en migración SQLite (sellers): {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Migración 5: Columna 'seller_id' en 'orders' (SQLite)
+            try:
+                db.session.execute(text("SELECT seller_id FROM orders LIMIT 1"))
+                print("✅ Columna 'seller_id' ya existe en orders")
+            except Exception:
+                try:
+                    print("🔄 Agregando columna 'seller_id' a orders...")
+                    db.session.execute(text("ALTER TABLE orders ADD COLUMN seller_id INTEGER REFERENCES sellers(id)"))
+                    db.session.execute(text("CREATE INDEX idx_orders_seller_id ON orders(seller_id)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'seller_id' agregada a orders")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "duplicate column" in error_str or "already exists" in error_str:
+                        print("✅ Columna 'seller_id' ya existe en orders")
+                    else:
+                        print(f"❌ Error en migración SQLite (seller_id): {e}")
+                        import traceback
+                        traceback.print_exc()
+            
+            # Migración 6: Columna 'is_seller_cost' en 'expenses' (SQLite)
+            try:
+                db.session.execute(text("SELECT is_seller_cost FROM expenses LIMIT 1"))
+                print("✅ Columna 'is_seller_cost' ya existe en expenses")
+            except Exception:
+                try:
+                    print("🔄 Agregando columna 'is_seller_cost' a expenses...")
+                    db.session.execute(text("ALTER TABLE expenses ADD COLUMN is_seller_cost INTEGER NOT NULL DEFAULT 0"))
+                    db.session.execute(text("CREATE INDEX idx_expenses_is_seller_cost ON expenses(is_seller_cost)"))
+                    db.session.commit()
+                    print("✅ Migración ejecutada: columna 'is_seller_cost' agregada a expenses")
+                except Exception as e:
+                    db.session.rollback()
+                    error_str = str(e).lower()
+                    if "duplicate column" in error_str or "already exists" in error_str:
+                        print("✅ Columna 'is_seller_cost' ya existe en expenses")
+                    else:
+                        print(f"❌ Error en migración SQLite (is_seller_cost): {e}")
+                        import traceback
+                        traceback.print_exc()
         else:
             # Otra base de datos, intentar método genérico
             # Migración 1: cost en order_items
@@ -346,6 +521,70 @@ def run_migrations():
                     print("✅ Tabla 'weekly_costs' ya existe")
                 else:
                     print(f"❌ Error en migración (weekly_costs): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 4: Tabla 'sellers' (genérico)
+            try:
+                print("🔄 Creando tabla 'sellers'...")
+                db.session.execute(text("""
+                    CREATE TABLE sellers (
+                        id INTEGER PRIMARY KEY,
+                        name VARCHAR(120) NOT NULL,
+                        phone VARCHAR(40) UNIQUE,
+                        email VARCHAR(120),
+                        address VARCHAR(200),
+                        preferences TEXT,
+                        notes TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                db.session.execute(text("CREATE INDEX idx_sellers_name ON sellers(name)"))
+                db.session.execute(text("CREATE INDEX idx_sellers_phone ON sellers(phone)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: tabla 'sellers' creada")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Tabla 'sellers' ya existe")
+                else:
+                    print(f"❌ Error en migración (sellers): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 5: Columna 'seller_id' en 'orders' (genérico)
+            try:
+                print("🔄 Agregando columna 'seller_id' a orders...")
+                db.session.execute(text("ALTER TABLE orders ADD COLUMN seller_id INTEGER"))
+                db.session.execute(text("CREATE INDEX idx_orders_seller_id ON orders(seller_id)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'seller_id' agregada a orders")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'seller_id' ya existe en orders")
+                else:
+                    print(f"❌ Error en migración (seller_id): {e}")
+                    import traceback
+                    traceback.print_exc()
+            
+            # Migración 6: Columna 'is_seller_cost' en 'expenses' (genérico)
+            try:
+                print("🔄 Agregando columna 'is_seller_cost' a expenses...")
+                db.session.execute(text("ALTER TABLE expenses ADD COLUMN is_seller_cost INTEGER NOT NULL DEFAULT 0"))
+                db.session.execute(text("CREATE INDEX idx_expenses_is_seller_cost ON expenses(is_seller_cost)"))
+                db.session.commit()
+                print("✅ Migración ejecutada: columna 'is_seller_cost' agregada a expenses")
+            except Exception as e:
+                db.session.rollback()
+                error_str = str(e).lower()
+                if "already exists" in error_str or "duplicate" in error_str:
+                    print("✅ Columna 'is_seller_cost' ya existe en expenses")
+                else:
+                    print(f"❌ Error en migración (is_seller_cost): {e}")
                     import traceback
                     traceback.print_exc()
     except Exception as e:

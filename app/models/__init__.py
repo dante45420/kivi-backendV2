@@ -16,6 +16,7 @@ from .content_template import ContentTemplate
 from .kivi_tip import KiviTip
 from .purchase import Purchase
 from .weekly_cost import WeeklyCost
+from .seller import Seller
 
 __all__ = [
     "Category",
@@ -32,5 +33,6 @@ __all__ = [
     "KiviTip",
     "Purchase",
     "WeeklyCost",
+    "Seller",
 ]
 

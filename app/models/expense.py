@@ -18,6 +18,9 @@ class Expense(db.Model):
     # Monto (redondeado al peso)
     amount = db.Column(db.Integer, nullable=False)
     
+    # Indica si es un costo asociado a un vendedor (para pedidos completados con vendedor)
+    is_seller_cost = db.Column(db.Boolean, default=False, nullable=False)
+    
     description = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -30,6 +33,7 @@ class Expense(db.Model):
             "order_id": self.order_id,
             "category": self.category,
             "amount": self.amount,
+            "is_seller_cost": self.is_seller_cost,
             "description": self.description,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

@@ -19,10 +19,16 @@ class Order(db.Model):
     shipping_type = db.Column(db.String(20), nullable=False, default="normal")
     # fast (rápido, mismo día antes de 12:00, +10%) | normal (día siguiente, +0%) | cheap (económico, 1-3 días, -10%)
     
+    # Vendedor asociado (opcional)
+    seller_id = db.Column(db.Integer, db.ForeignKey("sellers.id"), nullable=True)
+    
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     emitted_at = db.Column(db.DateTime, nullable=True)
     completed_at = db.Column(db.DateTime, nullable=True)
+    
+    # Relación
+    seller = db.relationship("Seller", backref="orders")
 
     def to_dict(self):
         return {
@@ -30,6 +36,8 @@ class Order(db.Model):
             "status": self.status,
             "source": self.source,
             "shipping_type": self.shipping_type,
+            "seller_id": self.seller_id,
+            "seller": self.seller.to_dict() if self.seller else None,
             "notes": self.notes,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "emitted_at": self.emitted_at.isoformat() if self.emitted_at else None,
