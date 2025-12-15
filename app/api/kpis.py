@@ -619,9 +619,12 @@ def get_best_products():
                 
                 if product_id not in products_revenue:
                     product = item.product
+                    # Determinar unidad: usar charged_unit si existe, sino unit, sino la del producto
+                    unit_to_use = item.charged_unit if item.charged_unit else (item.unit if item.unit else (product.unit if product else 'kg'))
                     products_revenue[product_id] = {
                         'product_id': product_id,
                         'product_name': product.name if product else 'Producto desconocido',
+                        'unit': unit_to_use,
                         'revenue': 0,
                         'qty': 0,
                         'orders': set()
@@ -630,6 +633,9 @@ def get_best_products():
                 products_revenue[product_id]['revenue'] += item_revenue
                 products_revenue[product_id]['qty'] += qty_to_charge
                 products_revenue[product_id]['orders'].add(order.id)
+                # Actualizar unidad si es necesario (usar la más común o la del producto base)
+                if item.product:
+                    products_revenue[product_id]['unit'] = item.product.unit
         
         # Convertir a lista y ordenar por monto facturado
         products_list = []
@@ -637,6 +643,7 @@ def get_best_products():
             products_list.append({
                 'product_id': data['product_id'],
                 'product_name': data['product_name'],
+                'unit': data.get('unit', 'kg'),  # Unidad del producto
                 'revenue': data['revenue'],
                 'qty': round(data['qty'], 2),
                 'orders_count': len(data['orders'])
