@@ -1,5 +1,5 @@
 """
-API: Kivi el perro 🐕
+API: Green Market 🌱
 Tips aleatorios y chat con IA
 """
 from flask import Blueprint, request, jsonify
@@ -12,7 +12,7 @@ bp = Blueprint("kivi", __name__)
 
 @bp.route("/tip/random", methods=["GET"])
 def get_random_tip():
-    """Obtiene un tip aleatorio de Kivi"""
+    """Obtiene un tip aleatorio de Green Market"""
     category = request.args.get("category")
     
     query = KiviTip.query.filter_by(active=True)
@@ -24,9 +24,9 @@ def get_random_tip():
     
     if not tips:
         return jsonify({
-            "message": "¡Guau! Aquí estoy para ayudarte 🐕",
+            "message": "¡Hola! Aquí estoy para ayudarte 🌱",
             "category": "default",
-            "emoji": "🐕"
+            "emoji": "🌱"
         })
     
     tip = random.choice(tips)
@@ -49,7 +49,7 @@ def get_tips():
 
 @bp.route("/chat", methods=["POST"])
 def chat():
-    """Chat con Kivi usando IA"""
+    """Chat con Green Market usando IA"""
     data = request.json
     message = data.get("message", "")
     context = data.get("context")
@@ -66,7 +66,7 @@ def chat():
 
 @bp.route("/tips", methods=["POST"])
 def create_tip():
-    """Crea un nuevo tip de Kivi"""
+    """Crea un nuevo tip de Green Market"""
     from ..db import db
     
     data = request.json
@@ -108,7 +108,7 @@ def update_tip(id):
 
 @bp.route("/tips/<int:id>", methods=["DELETE"])
 def delete_tip(id):
-    """Elimina un tip de Kivi"""
+    """Elimina un tip de Green Market"""
     from ..db import db
     
     tip = KiviTip.query.get_or_404(id)

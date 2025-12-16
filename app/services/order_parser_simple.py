@@ -91,12 +91,31 @@ def _parse_item_line(text: str) -> Optional[Dict]:
             "qty": float,
             "unit": "kg" | "unit",
             "product_name": str,
+            "maturity_note": str | None,  # "para_hoy" o "para_4_5_dias"
             "raw_text": str
         }
     """
     original = text
     # Limpiar el texto: eliminar comas al final y normalizar espacios
     text_cleaned = text.strip()
+    
+    # Extraer nota de maduración (debe estar entre paréntesis)
+    maturity_note = None
+    maturity_pattern = r'\(([^)]+)\)'
+    maturity_matches = re.findall(maturity_pattern, text_cleaned)
+    if maturity_matches:
+        # Buscar indicaciones de maduración en el último paréntesis
+        last_match = maturity_matches[-1].lower().strip()
+        # Reconocer variaciones de "para hoy"
+        if any(keyword in last_match for keyword in ['para hoy', 'hoy', 'para el dia', 'para el día', 'para hoy mismo']):
+            maturity_note = 'para_hoy'
+        # Reconocer variaciones de "para 4-5 días"
+        elif any(keyword in last_match for keyword in ['para 4', 'para 5', '4-5', '4 dias', '5 dias', '4 días', '5 días', '4-5 dias', '4-5 días', 'para 4-5', 'para 4 dias', 'para 5 dias', 'para 4 días', 'para 5 días']):
+            maturity_note = 'para_4_5_dias'
+        
+        # Si encontramos una nota, eliminarla del texto para que no interfiera con el parsing
+        if maturity_note:
+            text_cleaned = re.sub(r'\([^)]*\)', '', text_cleaned).strip()
     # Eliminar comas al final
     text_cleaned = re.sub(r',\s*$', '', text_cleaned)
     # Normalizar espacios múltiples
@@ -170,6 +189,7 @@ def _parse_item_line(text: str) -> Optional[Dict]:
                 "qty": qty,
                 "unit": unit,
                 "product_name": product_name,
+                "maturity_note": maturity_note,
                 "raw_text": original
             }
     
@@ -208,6 +228,7 @@ def _parse_item_line(text: str) -> Optional[Dict]:
                 "qty": qty,
                 "unit": unit,
                 "product_name": product_name,
+                "maturity_note": maturity_note,
                 "raw_text": original
             }
     
@@ -221,6 +242,7 @@ def _parse_item_line(text: str) -> Optional[Dict]:
         "qty": 1.0,
         "unit": "unit",
         "product_name": product_name,
+        "maturity_note": maturity_note,
         "raw_text": original
     }
 

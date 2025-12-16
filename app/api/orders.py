@@ -271,6 +271,7 @@ def create_order():
                 unit=item_data.get("unit", "kg"),
                 unit_price=unit_price,
                 notes=item_data.get("notes"),
+                maturity_note=item_data.get("maturity_note") or "para_4_5_dias",
             )
             db.session.add(item)
     
@@ -416,6 +417,7 @@ def add_order_item(id):
             unit=data.get("unit", "kg"),
             unit_price=unit_price,
             notes=data.get("notes"),
+            maturity_note=data.get("maturity_note") or "para_4_5_dias",
         )
         
         db.session.add(item)
@@ -510,6 +512,7 @@ def add_order_item_with_auto_create():
             unit=data.get("unit", "kg"),
             unit_price=unit_price,
             notes=data.get("notes"),
+            maturity_note=data.get("maturity_note") or "para_4_5_dias",
         )
         
         db.session.add(item)
@@ -631,6 +634,13 @@ def update_order_item(item_id):
         
         if "notes" in data:
             item.notes = data["notes"]
+        
+        if "maturity_note" in data:
+            # Validar que sea un valor válido o None
+            maturity_note = data["maturity_note"]
+            if maturity_note and maturity_note not in ["para_hoy", "para_4_5_dias"]:
+                return jsonify({"error": "maturity_note debe ser 'para_hoy', 'para_4_5_dias' o null"}), 400
+            item.maturity_note = maturity_note
         
         # Verificar que el costo no se haya perdido (protección adicional)
         try:

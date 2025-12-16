@@ -1,5 +1,5 @@
 """
-Kivi V2.0 - Aplicación Flask Principal
+Green Market V2.0 - Aplicación Flask Principal
 Personal Shopper Lo Valledor
 """
 import os
@@ -60,6 +60,26 @@ def create_app():
         # Crear tablas (después de importar todos los modelos)
         db.create_all()
         
+        # Migración automática: agregar columna maturity_note a order_items si no existe
+        try:
+            from sqlalchemy import inspect, text
+            inspector = inspect(db.engine)
+            columns = [col['name'] for col in inspector.get_columns('order_items')]
+            if 'maturity_note' not in columns:
+                print("🔄 Agregando columna maturity_note a order_items...")
+                if db.engine.dialect.name == 'postgresql':
+                    db.session.execute(text("ALTER TABLE order_items ADD COLUMN maturity_note VARCHAR(20) DEFAULT 'para_4_5_dias'"))
+                elif db.engine.dialect.name == 'sqlite':
+                    # SQLite no soporta ALTER TABLE ADD COLUMN fácilmente, pero db.create_all() debería manejarlo
+                    pass
+                else:
+                    db.session.execute(text("ALTER TABLE order_items ADD COLUMN maturity_note VARCHAR(20) DEFAULT 'para_4_5_dias'"))
+                db.session.commit()
+                print("✅ Columna maturity_note agregada exitosamente")
+        except Exception as e:
+            print(f"⚠️  Error verificando/agregando columna maturity_note: {e}")
+            db.session.rollback()
+        
         # Inicializar datos de prueba si es desarrollo
         if app.config["FLASK_ENV"] == "development":
             init_dev_data()
@@ -90,7 +110,7 @@ def create_app():
     # Ruta de health check
     @app.route("/health")
     def health():
-        return {"status": "ok", "message": "Kivi V2.0 is running! 🐕"}
+        return {"status": "ok", "message": "Green Market V2.0 is running! 🌱"}
     
     # Servir archivos estáticos de uploads
     from flask import send_from_directory
@@ -138,9 +158,9 @@ def init_dev_data():
     for prod in products:
         db.session.add(prod)
     
-    # Crear tips de Kivi
+    # Crear tips de Green Market
     tips = [
-        KiviTip(category="brand_info", message="¡Hola! Soy Kivi, tu personal shopper de Lo Valledor 🐕", emoji="🐕"),
+        KiviTip(category="brand_info", message="¡Hola! Soy Green Market, tu personal shopper de Lo Valledor 🌱", emoji="🌱"),
         KiviTip(category="platform_usage", message="¿Sabías que puedes parsear pedidos directamente desde WhatsApp?", emoji="💡"),
         KiviTip(category="product_info", message="Los aguacates maduran mejor a temperatura ambiente", emoji="🥑"),
         KiviTip(category="promotion", message="Revisa las ofertas semanales para los mejores precios", emoji="🎉"),

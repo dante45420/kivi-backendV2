@@ -29,6 +29,8 @@ class OrderItem(db.Model):
     paid = db.Column(db.Boolean, default=False)
     
     notes = db.Column(db.Text, nullable=True)
+    # Nota de maduración: "para_hoy" o "para_4_5_dias"
+    maturity_note = db.Column(db.String(20), nullable=True, default="para_4_5_dias")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Relaciones
@@ -72,6 +74,7 @@ class OrderItem(db.Model):
             "unit_price": self.unit_price or effective_price,
             "paid": self.paid,  # Deprecated, pero se mantiene por compatibilidad
             "notes": self.notes,
+            "maturity_note": self.maturity_note,
             "total": round(qty_to_charge * effective_price) if effective_price else 0,
         }
 
