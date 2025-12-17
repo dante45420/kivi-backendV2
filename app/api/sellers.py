@@ -454,6 +454,156 @@ def get_seller_payments(id):
         }), 500
 
 
+@bp.route("/<int:id>/week-summary", methods=["GET"])
+def get_seller_week_summary(id):
+    """
+    Obtiene el resumen semanal de un vendedor
+    Retorna: cantidad de pedidos, porcentaje de utilidad, utilidad total (costo del vendedor)
+    """
+    try:
+        from ..api.kpis import calculate_order_total
+        
+        seller = Seller.query.get_or_404(id)
+        week_start_str = request.args.get('week_start')
+        
+        # Si no se especifica semana, usar la semana actual
+        if week_start_str:
+            week_start = datetime.fromisoformat(week_start_str).date()
+        else:
+            week_start = get_week_start().date()
+        
+        week_end = week_start + timedelta(days=6)
+        week_start_dt = datetime.combine(week_start, datetime.min.time())
+        week_end_dt = datetime.combine(week_end, datetime.max.time())
+        
+        # Obtener pedidos completados del vendedor en esta semana
+        week_orders = Order.query.filter(
+            Order.seller_id == id,
+            Order.status == 'completed',
+            Order.created_at >= week_start_dt,
+            Order.created_at <= week_end_dt
+        ).all()
+        
+        # Calcular métricas
+        orders_count = 0
+        total_revenue = 0
+        total_cost = 0
+        total_utility = 0
+        utility_percentages = []
+        
+        for order in week_orders:
+            order_data = calculate_order_total(order)
+            order_total = order_data['order_total']
+            
+            if order_total > 0:
+                orders_count += 1
+                total_revenue += order_total
+                
+                # Obtener costo del vendedor para este pedido
+                seller_cost = Expense.query.filter_by(
+                    order_id=order.id,
+                    is_seller_cost=True
+                ).first()
+                
+                if seller_cost:
+                    total_cost += seller_cost.amount
+                    # La utilidad del vendedor es su costo (comisión)
+                    total_utility += seller_cost.amount
+                
+                # Calcular porcentaje de utilidad del pedido
+                if order_data['has_cost_data'] and order_data['utility_percent'] is not None:
+                    utility_percentages.append(order_data['utility_percent'])
+        
+        # Calcular porcentaje de utilidad promedio
+        avg_utility_percent = sum(utility_percentages) / len(utility_percentages) if utility_percentages else 0
+        
+        return jsonify({
+            'seller_id': id,
+            'seller_name': seller.name,
+            'week_start': week_start.isoformat(),
+            'week_end': week_end.isoformat(),
+            'orders_count': orders_count,
+            'total_revenue': round(total_revenue),
+            'total_utility': round(total_utility),  # Lo que se le paga (costo del vendedor)
+            'avg_utility_percent': round(avg_utility_percent, 2)
+        })
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error obteniendo resumen semanal del vendedor: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error obteniendo resumen semanal: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
+        }), 500
+
+
+@bp.route("/<int:id>/global-summary", methods=["GET"])
+def get_seller_global_summary(id):
+    """
+    Obtiene el resumen global de un vendedor (todo el periodo)
+    Retorna: cantidad total de pedidos, porcentaje de utilidad promedio, utilidad total
+    """
+    try:
+        from ..api.kpis import calculate_order_total
+        
+        seller = Seller.query.get_or_404(id)
+        
+        # Obtener todos los pedidos completados del vendedor
+        all_orders = Order.query.filter(
+            Order.seller_id == id,
+            Order.status == 'completed'
+        ).all()
+        
+        # Calcular métricas globales
+        orders_count = 0
+        total_revenue = 0
+        total_utility = 0
+        utility_percentages = []
+        
+        for order in all_orders:
+            order_data = calculate_order_total(order)
+            order_total = order_data['order_total']
+            
+            if order_total > 0:
+                orders_count += 1
+                total_revenue += order_total
+                
+                # Obtener costo del vendedor para este pedido
+                seller_cost = Expense.query.filter_by(
+                    order_id=order.id,
+                    is_seller_cost=True
+                ).first()
+                
+                if seller_cost:
+                    total_utility += seller_cost.amount
+                
+                # Calcular porcentaje de utilidad del pedido
+                if order_data['has_cost_data'] and order_data['utility_percent'] is not None:
+                    utility_percentages.append(order_data['utility_percent'])
+        
+        # Calcular porcentaje de utilidad promedio
+        avg_utility_percent = sum(utility_percentages) / len(utility_percentages) if utility_percentages else 0
+        
+        return jsonify({
+            'seller_id': id,
+            'seller_name': seller.name,
+            'orders_count': orders_count,
+            'total_revenue': round(total_revenue),
+            'total_utility': round(total_utility),  # Lo que se le paga en total
+            'avg_utility_percent': round(avg_utility_percent, 2)
+        })
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error obteniendo resumen global del vendedor: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error obteniendo resumen global: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
+        }), 500
+
+
 @bp.route("/<int:id>/payments", methods=["POST"])
 def create_seller_payment(id):
     """Registra un pago a un vendedor"""
@@ -744,3 +894,4 @@ def get_seller_bonuses():
     
     bonuses = query.order_by(SellerBonus.week_start.desc(), SellerBonus.created_at.desc()).all()
     return jsonify([b.to_dict() for b in bonuses])
+
