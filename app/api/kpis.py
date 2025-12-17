@@ -562,6 +562,113 @@ def get_utility_by_week():
         }), 500
 
 
+@bp.route("/by-week/<metric>", methods=["GET"])
+def get_kpi_by_week(metric):
+    """
+    Obtiene datos históricos de un KPI específico por semana
+    
+    Métricas disponibles:
+    - avg_order_value: Promedio de tamaño de pedido
+    - new_customers: Nuevos clientes
+    - total_orders: Total de pedidos
+    - total_revenue: Monto total facturado
+    - avg_utility_percent: Porcentaje de utilidad promedio
+    - avg_utility_amount: Utilidad promedio por pedido
+    - completed_orders_by_seller: Pedidos completados por vendedores
+    """
+    try:
+        # Obtener todos los pedidos completados o emitidos
+        all_orders = Order.query.filter(
+            Order.status.in_(['completed', 'emitted'])
+        ).all()
+        
+        # Agrupar por semana
+        weeks_data = {}
+        
+        for order in all_orders:
+            if not order.created_at:
+                continue
+            
+            # Obtener el lunes de la semana del pedido
+            try:
+                week_start = get_week_start(order.created_at)
+                week_key = week_start.isoformat() if week_start else None
+                if not week_key:
+                    continue
+            except Exception as e:
+                print(f"⚠️  Error calculando semana para pedido {order.id}: {e}")
+                continue
+            
+            if week_key not in weeks_data:
+                weeks_data[week_key] = {
+                    'week_start': week_key,
+                    'orders': []
+                }
+            
+            weeks_data[week_key]['orders'].append(order)
+        
+        # Calcular métrica para cada semana
+        result = []
+        for week_key, week_data in weeks_data.items():
+            week_orders = week_data['orders']
+            
+            # Calcular según la métrica solicitada
+            if metric == 'avg_order_value':
+                stats = calculate_kpis_for_orders(week_orders)
+                value = stats['avg_order_value']
+            elif metric == 'new_customers':
+                # Contar clientes nuevos en esta semana
+                week_start_dt = datetime.fromisoformat(week_key)
+                week_end_dt = week_start_dt + timedelta(days=6)
+                week_end_dt = datetime.combine(week_end_dt.date(), datetime.max.time())
+                week_start_dt = datetime.combine(week_start_dt.date(), datetime.min.time())
+                
+                value = Customer.query.filter(
+                    Customer.created_at >= week_start_dt,
+                    Customer.created_at <= week_end_dt
+                ).count()
+            elif metric == 'total_orders':
+                stats = calculate_kpis_for_orders(week_orders)
+                value = stats['total_orders']
+            elif metric == 'total_revenue':
+                stats = calculate_kpis_for_orders(week_orders)
+                value = stats['total_revenue']
+            elif metric == 'avg_utility_percent':
+                stats = calculate_kpis_for_orders(week_orders)
+                value = stats['avg_utility_percent']
+            elif metric == 'avg_utility_amount':
+                stats = calculate_kpis_for_orders(week_orders)
+                value = stats['avg_utility_amount']
+            elif metric == 'completed_orders_by_seller':
+                stats = calculate_kpis_for_orders(week_orders)
+                value = sum(stats['completed_orders_by_seller'].values())
+            else:
+                return jsonify({"error": f"Métrica '{metric}' no reconocida"}), 400
+            
+            result.append({
+                'week_start': week_key,
+                'value': round(value, 2) if isinstance(value, float) else value
+            })
+        
+        # Ordenar por semana (más antigua primero)
+        result.sort(key=lambda x: x['week_start'])
+        
+        return jsonify({
+            'metric': metric,
+            'weeks': result
+        })
+    
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"❌ Error obteniendo KPI por semana: {e}")
+        print(error_trace)
+        return jsonify({
+            "error": f"Error obteniendo KPI por semana: {str(e)}",
+            "details": error_trace if request.args.get("debug") == "true" else None
+        }), 500
+
+
 @bp.route("/best-products", methods=["GET"])
 def get_best_products():
     """
