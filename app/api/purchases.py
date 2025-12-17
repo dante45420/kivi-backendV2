@@ -369,7 +369,9 @@ def get_purchases():
                         "order_id": item.order_id,
                         "qty": qty,
                         "unit": item.charged_unit or item.unit,
-                        "order_date": item.order.created_at.isoformat() if item.order.created_at else None
+                        "order_date": item.order.created_at.isoformat() if item.order.created_at else None,
+                        "maturity_note": item.maturity_note or "para_4_5_dias",
+                        "product_name": item.product.name if item.product else None
                     })
                     customers_info[customer_id]["total_qty"] += qty
             
