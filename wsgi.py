@@ -91,6 +91,7 @@ def create_app():
             weekly_offers_bp, auth_bp, images_bp, kpis_bp, weekly_costs_bp
         )
         from app.api.sellers import bp as sellers_bp
+        from app.api.purchase_pdfs import bp as purchase_pdfs_bp
         
         app.register_blueprint(auth_bp, url_prefix="/api/auth")
         app.register_blueprint(categories_bp, url_prefix="/api/categories")
@@ -106,6 +107,7 @@ def create_app():
         app.register_blueprint(kpis_bp)
         app.register_blueprint(weekly_costs_bp)
         app.register_blueprint(sellers_bp)
+        app.register_blueprint(purchase_pdfs_bp)
     
     # Ruta de health check
     @app.route("/health")
