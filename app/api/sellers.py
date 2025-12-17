@@ -458,7 +458,7 @@ def get_seller_payments(id):
 def get_seller_week_summary(id):
     """
     Obtiene el resumen semanal de un vendedor
-    Retorna: cantidad de pedidos, porcentaje de utilidad, utilidad total (costo del vendedor)
+    Retorna: cantidad de pedidos, porcentaje de comisión alcanzado, utilidad total (costo del vendedor)
     """
     try:
         from ..api.kpis import calculate_order_total
@@ -490,7 +490,7 @@ def get_seller_week_summary(id):
         total_revenue = 0
         total_cost = 0
         total_utility = 0
-        utility_percentages = []
+        commission_percentages = []  # Cambiar a porcentajes de comisión
         
         for order in week_orders:
             order_data = calculate_order_total(order)
@@ -510,13 +510,13 @@ def get_seller_week_summary(id):
                     total_cost += seller_cost.amount
                     # La utilidad del vendedor es su costo (comisión)
                     total_utility += seller_cost.amount
-                
-                # Calcular porcentaje de utilidad del pedido
-                if order_data['has_cost_data'] and order_data['utility_percent'] is not None:
-                    utility_percentages.append(order_data['utility_percent'])
+                    
+                    # Obtener porcentaje de comisión del costo (si existe)
+                    if seller_cost.commission_percent is not None:
+                        commission_percentages.append(seller_cost.commission_percent)
         
-        # Calcular porcentaje de utilidad promedio
-        avg_utility_percent = sum(utility_percentages) / len(utility_percentages) if utility_percentages else 0
+        # Calcular porcentaje de comisión promedio alcanzado (promedio de comisiones de los pedidos de esa semana)
+        avg_commission_percent = sum(commission_percentages) / len(commission_percentages) if commission_percentages else 0
         
         return jsonify({
             'seller_id': id,
@@ -526,7 +526,7 @@ def get_seller_week_summary(id):
             'orders_count': orders_count,
             'total_revenue': round(total_revenue),
             'total_utility': round(total_utility),  # Lo que se le paga (costo del vendedor)
-            'avg_utility_percent': round(avg_utility_percent, 2)
+            'avg_utility_percent': round(avg_commission_percent, 2)  # Porcentaje de comisión alcanzado (promedio)
         })
     except Exception as e:
         import traceback
@@ -819,10 +819,12 @@ def assign_weekly_bonus():
             return jsonify({"error": "orders_target y bonus_percent son requeridos"}), 400
         
         # Obtener semana actual si no se especifica
+        # Siempre normalizar al lunes de la semana para evitar problemas
         if week_start_str:
-            week_start = datetime.fromisoformat(week_start_str).date()
+            week_start_date = datetime.fromisoformat(week_start_str).date()
+            week_start = get_week_start(week_start_date)  # get_week_start ya devuelve un date normalizado al lunes
         else:
-            week_start = get_week_start().date()
+            week_start = get_week_start()  # get_week_start ya devuelve un date
         
         week_end = week_start + timedelta(days=6)
         week_start_dt = datetime.combine(week_start, datetime.min.time())
