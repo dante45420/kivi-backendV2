@@ -470,7 +470,8 @@ def get_seller_week_summary(id):
         if week_start_str:
             week_start = datetime.fromisoformat(week_start_str).date()
         else:
-            week_start = get_week_start().date()
+            from ..api.kpis import get_week_start as get_week_start_kpis
+            week_start = get_week_start_kpis()  # Ya devuelve un date, no necesita .date()
         
         week_end = week_start + timedelta(days=6)
         week_start_dt = datetime.combine(week_start, datetime.min.time())
