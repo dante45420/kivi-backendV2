@@ -544,9 +544,11 @@ def get_seller_global_summary(id):
     """
     Obtiene el resumen global de un vendedor (todo el periodo)
     Retorna: cantidad total de pedidos, porcentaje de utilidad promedio, utilidad total
+    Incluye información por cliente con cuánto ha ganado cada uno
     """
     try:
         from ..api.kpis import calculate_order_total
+        from ..models import Customer
         
         seller = Seller.query.get_or_404(id)
         
@@ -561,6 +563,9 @@ def get_seller_global_summary(id):
         total_revenue = 0
         total_utility = 0
         utility_percentages = []
+        
+        # Agrupar por cliente
+        customers_data = {}  # {customer_id: {'customer': {...}, 'orders': [...], 'total_revenue': 0, 'orders_count': 0}}
         
         for order in all_orders:
             order_data = calculate_order_total(order)
@@ -582,9 +587,65 @@ def get_seller_global_summary(id):
                 # Calcular porcentaje de utilidad del pedido
                 if order_data['has_cost_data'] and order_data['utility_percent'] is not None:
                     utility_percentages.append(order_data['utility_percent'])
+                
+                # Agrupar por cliente
+                # Primero calcular subtotal por cliente en este pedido
+                customer_subtotals = {}  # {customer_id: subtotal}
+                order_subtotal = 0
+                
+                for item in order.items:
+                    customer_id = item.customer_id
+                    if customer_id not in customers_data:
+                        customer = Customer.query.get(customer_id)
+                        if customer:
+                            customers_data[customer_id] = {
+                                'customer': customer.to_dict(),
+                                'orders': [],
+                                'total_revenue': 0,
+                                'orders_count': 0
+                            }
+                    
+                    # Calcular revenue de este item
+                    qty_to_charge = item.charged_qty if item.charged_qty is not None else item.qty
+                    unit_price = item.unit_price
+                    if not unit_price and item.product:
+                        unit_price = item.product.sale_price or 0
+                    item_revenue = round(qty_to_charge * (unit_price or 0))
+                    
+                    if customer_id not in customer_subtotals:
+                        customer_subtotals[customer_id] = 0
+                    customer_subtotals[customer_id] += item_revenue
+                    order_subtotal += item_revenue
+                
+                # Calcular envío proporcional
+                from ..utils.shipping import calculate_shipping
+                shipping_amount = calculate_shipping(order.shipping_type or 'normal', order_subtotal)
+                
+                # Distribuir revenue (subtotal + envío proporcional) por cliente
+                for customer_id, customer_subtotal in customer_subtotals.items():
+                    if customer_id in customers_data:
+                        # Calcular proporción del envío
+                        shipping_proportion = (customer_subtotal / order_subtotal) if order_subtotal > 0 else 0
+                        customer_order_total = customer_subtotal + (shipping_amount * shipping_proportion)
+                        
+                        # Agregar a total del cliente
+                        customers_data[customer_id]['total_revenue'] += round(customer_order_total)
+                        
+                        # Agregar pedido si no está ya en la lista
+                        if order.id not in [o['order_id'] for o in customers_data[customer_id]['orders']]:
+                            customers_data[customer_id]['orders'].append({
+                                'order_id': order.id,
+                                'order_date': order.created_at.isoformat() if order.created_at else None,
+                                'order_total': round(customer_order_total)
+                            })
+                            customers_data[customer_id]['orders_count'] += 1
         
         # Calcular porcentaje de utilidad promedio
         avg_utility_percent = sum(utility_percentages) / len(utility_percentages) if utility_percentages else 0
+        
+        # Convertir customers_data a lista y ordenar por total_revenue
+        customers_list = list(customers_data.values())
+        customers_list.sort(key=lambda x: x['total_revenue'], reverse=True)
         
         return jsonify({
             'seller_id': id,
@@ -592,7 +653,8 @@ def get_seller_global_summary(id):
             'orders_count': orders_count,
             'total_revenue': round(total_revenue),
             'total_utility': round(total_utility),  # Lo que se le paga en total
-            'avg_utility_percent': round(avg_utility_percent, 2)
+            'avg_utility_percent': round(avg_utility_percent, 2),
+            'customers': customers_list
         })
     except Exception as e:
         import traceback
