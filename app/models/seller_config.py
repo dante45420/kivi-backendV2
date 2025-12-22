@@ -22,3 +22,4 @@ class SellerConfig(db.Model):
             "commission_percent": self.commission_percent,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+

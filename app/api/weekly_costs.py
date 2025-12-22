@@ -231,3 +231,4 @@ def delete_weekly_cost(cost_id):
         return jsonify({
             "error": f"Error al eliminar costo: {str(e)}"
         }), 500
+
