@@ -129,8 +129,11 @@ def get_kpis():
         last_week_start = datetime.combine(last_week_start_date, datetime.min.time())
         last_week_end = datetime.combine(last_week_end_date, datetime.max.time())
         
-        # Obtener todos los pedidos completados o emitidos
-        all_orders = Order.query.filter(
+        # Obtener todos los pedidos completados o emitidos con items cargados
+        from sqlalchemy.orm import joinedload
+        all_orders = Order.query.options(
+            joinedload(Order.items)
+        ).filter(
             Order.status.in_(['completed', 'emitted'])
         ).all()
         
@@ -165,11 +168,16 @@ def get_kpis():
         total_customers_historical = Customer.query.count()
         
         # Calcular clientes que retornaron (última semana)
-        last_week_key = last_week_start_date.isoformat()
-        customer_return_rate_last_week = calculate_customer_return_rate_for_week(last_week_key, all_orders)
-        
-        # Calcular vendedores que retornaron (última semana)
-        seller_return_rate_last_week = calculate_seller_return_rate_for_week(last_week_key, all_orders)
+        customer_return_rate_last_week = 0.0
+        seller_return_rate_last_week = 0.0
+        try:
+            last_week_key = last_week_start_date.isoformat()
+            customer_return_rate_last_week = calculate_customer_return_rate_for_week(last_week_key, all_orders)
+            seller_return_rate_last_week = calculate_seller_return_rate_for_week(last_week_key, all_orders)
+        except Exception as e:
+            print(f"⚠️  Error calculando retornos para última semana: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Calcular monto facturado por vendedores (última semana)
         last_week_orders_with_seller = [o for o in last_week_orders if o.seller_id]
@@ -927,22 +935,34 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
     Las primeras dos semanas se ignoran (retornan 0).
     """
     try:
+        if not week_key or not all_orders:
+            return 0.0
+            
         # Convertir week_key a datetime
-        week_start_dt = datetime.fromisoformat(week_key)
-        week_start_date = week_start_dt.date()
+        try:
+            week_start_dt = datetime.fromisoformat(week_key)
+            week_start_date = week_start_dt.date()
+        except (ValueError, AttributeError):
+            return 0.0
         
         # Agrupar todos los pedidos por semana
         orders_by_week = {}
         for order in all_orders:
             if not order.created_at:
                 continue
-            order_week_start = get_week_start(order.created_at)
-            week_key_order = order_week_start.isoformat() if order_week_start else None
-            if not week_key_order:
+            try:
+                order_week_start = get_week_start(order.created_at)
+                if not order_week_start:
+                    continue
+                week_key_order = order_week_start.isoformat() if hasattr(order_week_start, 'isoformat') else str(order_week_start)
+                if not week_key_order:
+                    continue
+                if week_key_order not in orders_by_week:
+                    orders_by_week[week_key_order] = []
+                orders_by_week[week_key_order].append(order)
+            except Exception as e:
+                print(f"⚠️  Error procesando pedido {order.id} para seller_return_rate: {e}")
                 continue
-            if week_key_order not in orders_by_week:
-                orders_by_week[week_key_order] = []
-            orders_by_week[week_key_order].append(order)
         
         # Obtener todas las semanas ordenadas
         sorted_weeks = sorted(orders_by_week.keys())
@@ -968,8 +988,12 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
         for ref_week_key in [week_minus_1_start.isoformat(), week_minus_2_start.isoformat()]:
             if ref_week_key in orders_by_week:
                 for order in orders_by_week[ref_week_key]:
-                    if order.seller_id:
-                        sellers_in_reference.add(order.seller_id)
+                    try:
+                        if hasattr(order, 'seller_id') and order.seller_id:
+                            sellers_in_reference.add(order.seller_id)
+                    except Exception as e:
+                        print(f"⚠️  Error procesando seller_id del pedido {order.id}: {e}")
+                        continue
         
         if not sellers_in_reference:
             return 0.0
@@ -979,10 +1003,17 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
         for ret_week_key in [week_key, previous_week_start.isoformat()]:
             if ret_week_key in orders_by_week:
                 for order in orders_by_week[ret_week_key]:
-                    if order.seller_id and order.seller_id in sellers_in_reference:
-                        sellers_returned.add(order.seller_id)
+                    try:
+                        if hasattr(order, 'seller_id') and order.seller_id and order.seller_id in sellers_in_reference:
+                            sellers_returned.add(order.seller_id)
+                    except Exception as e:
+                        print(f"⚠️  Error procesando seller_id del pedido {order.id}: {e}")
+                        continue
         
         # Calcular porcentaje
+        if len(sellers_in_reference) == 0:
+            return 0.0
+        
         return (len(sellers_returned) / len(sellers_in_reference)) * 100
         
     except Exception as e:
