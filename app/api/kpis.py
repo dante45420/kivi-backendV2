@@ -641,8 +641,11 @@ def get_kpi_by_week(metric):
     - completed_orders_by_seller: Pedidos completados por vendedores
     """
     try:
-        # Obtener todos los pedidos completados o emitidos
-        all_orders = Order.query.filter(
+        # Obtener todos los pedidos completados o emitidos con items cargados
+        from sqlalchemy.orm import joinedload
+        all_orders = Order.query.options(
+            joinedload(Order.items)
+        ).filter(
             Order.status.in_(['completed', 'emitted'])
         ).all()
         
@@ -708,17 +711,23 @@ def get_kpi_by_week(metric):
                 value = sum(stats['completed_orders_by_seller'].values())
             elif metric == 'customer_return_rate':
                 # Calcular porcentaje de clientes que retornaron
-                # Necesitamos pasar todos los pedidos para calcular correctamente
-                all_orders_for_calc = Order.query.filter(
-                    Order.status.in_(['completed', 'emitted'])
-                ).all()
-                value = calculate_customer_return_rate_for_week(week_key, all_orders_for_calc)
+                # Usar todos los pedidos ya cargados con items
+                try:
+                    value = calculate_customer_return_rate_for_week(week_key, all_orders)
+                except Exception as e:
+                    print(f"⚠️  Error calculando customer_return_rate para semana {week_key}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    value = 0.0
             elif metric == 'seller_return_rate':
                 # Calcular porcentaje de vendedores que retornaron
-                all_orders_for_calc = Order.query.filter(
-                    Order.status.in_(['completed', 'emitted'])
-                ).all()
-                value = calculate_seller_return_rate_for_week(week_key, all_orders_for_calc)
+                try:
+                    value = calculate_seller_return_rate_for_week(week_key, all_orders)
+                except Exception as e:
+                    print(f"⚠️  Error calculando seller_return_rate para semana {week_key}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    value = 0.0
             elif metric == 'revenue_by_seller':
                 # Para este KPI, retornar el total facturado por vendedores en esta semana
                 week_orders_with_seller = [o for o in week_orders if o.seller_id]
