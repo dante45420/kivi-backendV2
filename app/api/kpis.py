@@ -60,6 +60,9 @@ def get_last_completed_week():
 
 bp = Blueprint("kpis", __name__, url_prefix="/api/kpis")
 
+# Fecha de inicio para todas las estadísticas de KPIs (1 de marzo)
+KPI_START_DATE = datetime(2024, 3, 1, 0, 0, 0)  # 1 de marzo de 2024
+
 
 def calculate_order_total(order):
     """Calcula el total de un pedido usando la misma lógica que get_customer_debt"""
@@ -164,8 +167,10 @@ def get_kpis():
             Customer.created_at <= last_week_end
         ).count()
         
-        # Total de clientes históricos
-        total_customers_historical = Customer.query.count()
+        # Total de clientes históricos (desde el 1 de marzo)
+        total_customers_historical = Customer.query.filter(
+            Customer.created_at >= KPI_START_DATE
+        ).count()
         
         # Calcular clientes que retornaron (última semana)
         customer_return_rate_last_week = 0.0
@@ -321,7 +326,8 @@ def get_utility_details():
     """
     try:
         all_orders = Order.query.filter(
-            Order.status.in_(['completed', 'emitted'])
+            Order.status.in_(['completed', 'emitted']),
+            Order.created_at >= KPI_START_DATE
         ).all()
         
         orders_details = []
@@ -423,9 +429,10 @@ def get_utility_by_week():
     - Resultado final de la semana (utilidad - costos)
     """
     try:
-        # Obtener todos los pedidos completados o emitidos
+        # Obtener todos los pedidos completados o emitidos (desde el 1 de marzo)
         all_orders = Order.query.filter(
-            Order.status.in_(['completed', 'emitted'])
+            Order.status.in_(['completed', 'emitted']),
+            Order.created_at >= KPI_START_DATE
         ).all()
         
         # Agrupar pedidos por semana
@@ -641,12 +648,13 @@ def get_kpi_by_week(metric):
     - completed_orders_by_seller: Pedidos completados por vendedores
     """
     try:
-        # Obtener todos los pedidos completados o emitidos con items cargados
+        # Obtener todos los pedidos completados o emitidos con items cargados (desde el 1 de marzo)
         from sqlalchemy.orm import joinedload
         all_orders = Order.query.options(
             joinedload(Order.items)
         ).filter(
-            Order.status.in_(['completed', 'emitted'])
+            Order.status.in_(['completed', 'emitted']),
+            Order.created_at >= KPI_START_DATE
         ).all()
         
         # Agrupar por semana
@@ -684,16 +692,20 @@ def get_kpi_by_week(metric):
                 stats = calculate_kpis_for_orders(week_orders)
                 value = stats['avg_order_value']
             elif metric == 'new_customers':
-                # Contar clientes nuevos en esta semana
+                # Contar clientes nuevos en esta semana (desde el 1 de marzo)
                 week_start_dt = datetime.fromisoformat(week_key)
                 week_end_dt = week_start_dt + timedelta(days=6)
                 week_end_dt = datetime.combine(week_end_dt.date(), datetime.max.time())
                 week_start_dt = datetime.combine(week_start_dt.date(), datetime.min.time())
                 
-                value = Customer.query.filter(
-                    Customer.created_at >= week_start_dt,
-                    Customer.created_at <= week_end_dt
-                ).count()
+                # Asegurar que la semana no sea anterior al 1 de marzo
+                if week_start_dt < KPI_START_DATE:
+                    value = 0
+                else:
+                    value = Customer.query.filter(
+                        Customer.created_at >= max(week_start_dt, KPI_START_DATE),
+                        Customer.created_at <= week_end_dt
+                    ).count()
             elif metric == 'total_orders':
                 stats = calculate_kpis_for_orders(week_orders)
                 value = stats['total_orders']
@@ -770,9 +782,10 @@ def get_best_products():
         # Obtener parámetro de filtro (last_week o historical)
         filter_type = request.args.get("filter", "historical")  # Por defecto histórico
         
-        # Calcular rango de última semana si es necesario
+        # Calcular rango de última semana si es necesario (desde el 1 de marzo)
         orders_query = Order.query.filter(
-            Order.status.in_(['completed', 'emitted'])
+            Order.status.in_(['completed', 'emitted']),
+            Order.created_at >= KPI_START_DATE
         )
         
         if filter_type == "last_week":
@@ -781,8 +794,10 @@ def get_best_products():
             last_week_start = datetime.combine(last_week_start_date, datetime.min.time())
             last_week_end = datetime.combine(last_week_end_date, datetime.max.time())
             
+            # Asegurar que el inicio no sea anterior al 1 de marzo
+            effective_start = max(last_week_start, KPI_START_DATE)
             orders_query = orders_query.filter(
-                Order.created_at >= last_week_start,
+                Order.created_at >= effective_start,
                 Order.created_at <= last_week_end
             )
         
@@ -1045,9 +1060,10 @@ def get_revenue_by_seller():
         filter_mode = request.args.get("filter_mode", "all")  # all, top, bottom
         filter_count = int(request.args.get("filter_count", "10"))  # cantidad de vendedores
         
-        # Calcular rango de última semana si es necesario
+        # Calcular rango de última semana si es necesario (desde el 1 de marzo)
         orders_query = Order.query.filter(
-            Order.status.in_(['completed', 'emitted'])
+            Order.status.in_(['completed', 'emitted']),
+            Order.created_at >= KPI_START_DATE
         )
         
         if filter_type == "last_week":
@@ -1055,8 +1071,10 @@ def get_revenue_by_seller():
             last_week_start = datetime.combine(last_week_start_date, datetime.min.time())
             last_week_end = datetime.combine(last_week_end_date, datetime.max.time())
             
+            # Asegurar que el inicio no sea anterior al 1 de marzo
+            effective_start = max(last_week_start, KPI_START_DATE)
             orders_query = orders_query.filter(
-                Order.created_at >= last_week_start,
+                Order.created_at >= effective_start,
                 Order.created_at <= last_week_end
             )
         
