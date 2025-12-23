@@ -132,12 +132,13 @@ def get_kpis():
         last_week_start = datetime.combine(last_week_start_date, datetime.min.time())
         last_week_end = datetime.combine(last_week_end_date, datetime.max.time())
         
-        # Obtener todos los pedidos completados o emitidos con items cargados
+        # Obtener todos los pedidos completados o emitidos con items cargados (desde el 1 de marzo)
         from sqlalchemy.orm import joinedload
         all_orders = Order.query.options(
             joinedload(Order.items)
         ).filter(
-            Order.status.in_(['completed', 'emitted'])
+            Order.status.in_(['completed', 'emitted']),
+            Order.created_at >= KPI_START_DATE
         ).all()
         
         # Separar pedidos de última semana e históricos
@@ -158,7 +159,7 @@ def get_kpis():
         # Calcular KPIs para última semana
         last_week_stats = calculate_kpis_for_orders(last_week_orders)
         
-        # Calcular KPIs históricos (todos los pedidos)
+        # Calcular KPIs históricos (todos los pedidos desde el 1 de marzo)
         historical_stats = calculate_kpis_for_orders(all_orders)
         
         # Nuevos clientes en la última semana completada
@@ -177,8 +178,11 @@ def get_kpis():
         seller_return_rate_last_week = 0.0
         try:
             last_week_key = last_week_start_date.isoformat()
-            customer_return_rate_last_week = calculate_customer_return_rate_for_week(last_week_key, all_orders)
-            seller_return_rate_last_week = calculate_seller_return_rate_for_week(last_week_key, all_orders)
+            customer_rate = calculate_customer_return_rate_for_week(last_week_key, all_orders)
+            seller_rate = calculate_seller_return_rate_for_week(last_week_key, all_orders)
+            # Si es None (primera o segunda semana), usar 0 para mostrar pero no afecta el promedio histórico
+            customer_return_rate_last_week = customer_rate if customer_rate is not None else 0.0
+            seller_return_rate_last_week = seller_rate if seller_rate is not None else 0.0
         except Exception as e:
             print(f"⚠️  Error calculando retornos para última semana: {e}")
             import traceback
@@ -201,8 +205,17 @@ def get_kpis():
             for order in all_orders:
                 if not order.created_at:
                     continue
+                # Filtrar pedidos anteriores al 1 de marzo
+                if order.created_at < KPI_START_DATE:
+                    continue
                 order_week_start = get_week_start(order.created_at)
-                week_key_order = order_week_start.isoformat() if order_week_start else None
+                if not order_week_start:
+                    continue
+                # Asegurar que la semana no sea anterior al 1 de marzo
+                week_start_dt = datetime.combine(order_week_start, datetime.min.time())
+                if week_start_dt < KPI_START_DATE:
+                    continue
+                week_key_order = order_week_start.isoformat() if hasattr(order_week_start, 'isoformat') else str(order_week_start)
                 if not week_key_order:
                     continue
                 if week_key_order not in orders_by_week:
@@ -215,17 +228,40 @@ def get_kpis():
             return_rates_seller = []
             for i, week_key in enumerate(sorted_weeks):
                 if i >= 2:  # Desde la semana 3 (índice 2)
-                    customer_rate = calculate_customer_return_rate_for_week(week_key, all_orders)
-                    seller_rate = calculate_seller_return_rate_for_week(week_key, all_orders)
-                    return_rates_customer.append(customer_rate)
-                    return_rates_seller.append(seller_rate)
+                    try:
+                        # Verificar que la semana no sea anterior al 1 de marzo
+                        week_start_dt = datetime.fromisoformat(week_key)
+                        week_start_dt = datetime.combine(week_start_dt.date(), datetime.min.time())
+                        if week_start_dt < KPI_START_DATE:
+                            continue
+                        
+                        customer_rate = calculate_customer_return_rate_for_week(week_key, all_orders)
+                        seller_rate = calculate_seller_return_rate_for_week(week_key, all_orders)
+                        
+                        # Solo incluir semanas con valores válidos (no None)
+                        # None significa que es una de las primeras dos semanas y no debe contarse
+                        if customer_rate is not None:
+                            return_rates_customer.append(customer_rate)
+                        if seller_rate is not None:
+                            return_rates_seller.append(seller_rate)
+                    except Exception as e:
+                        print(f"⚠️  Error calculando retorno para semana {week_key}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        continue
             
             if return_rates_customer:
                 historical_customer_return_rate = sum(return_rates_customer) / len(return_rates_customer)
+                print(f"📊 Promedio histórico clientes que retornaron: {historical_customer_return_rate:.2f}% (de {len(return_rates_customer)} semanas)")
+                print(f"   - Valores por semana: {return_rates_customer}")
             if return_rates_seller:
                 historical_seller_return_rate = sum(return_rates_seller) / len(return_rates_seller)
+                print(f"📊 Promedio histórico vendedores que retornaron: {historical_seller_return_rate:.2f}% (de {len(return_rates_seller)} semanas)")
+                print(f"   - Valores por semana: {return_rates_seller}")
         except Exception as e:
             print(f"⚠️  Error calculando promedios históricos de retorno: {e}")
+            import traceback
+            traceback.print_exc()
         
         return jsonify({
             "last_week": {
@@ -726,6 +762,9 @@ def get_kpi_by_week(metric):
                 # Usar todos los pedidos ya cargados con items
                 try:
                     value = calculate_customer_return_rate_for_week(week_key, all_orders)
+                    # Si es None (primera o segunda semana), usar 0 para el gráfico
+                    if value is None:
+                        value = 0.0
                 except Exception as e:
                     print(f"⚠️  Error calculando customer_return_rate para semana {week_key}: {e}")
                     import traceback
@@ -735,6 +774,9 @@ def get_kpi_by_week(metric):
                 # Calcular porcentaje de vendedores que retornaron
                 try:
                     value = calculate_seller_return_rate_for_week(week_key, all_orders)
+                    # Si es None (primera o segunda semana), usar 0 para el gráfico
+                    if value is None:
+                        value = 0.0
                 except Exception as e:
                     print(f"⚠️  Error calculando seller_return_rate para semana {week_key}: {e}")
                     import traceback
@@ -876,77 +918,121 @@ def get_best_products():
         return jsonify({"error": f"Error obteniendo mejores productos: {str(e)}"}), 500
 
 
-def calculate_customer_return_rate(week_key, weeks_data):
+def calculate_customer_return_rate_for_week(week_key, all_orders):
     """
     Calcula el porcentaje de clientes que retornaron para una semana específica.
-    Un cliente retorna si:
-    - Pidió hace 1 o 2 semanas
-    - Y volvió a pedir en esta semana o la anterior
+    
+    FÓRMULA:
+    - Clientes de referencia: Clientes únicos que pidieron hace 1 o 2 semanas (semana N-1 o N-2)
+    - Clientes que retornaron: Clientes de referencia que volvieron a pedir en esta semana (N) o la anterior (N-1)
+    - Porcentaje = (Clientes que retornaron / Clientes de referencia) * 100
+    
     Las primeras dos semanas se ignoran (retornan 0).
     """
     try:
+        if not week_key or not all_orders:
+            return 0.0
+            
         # Convertir week_key a datetime
-        week_start_dt = datetime.fromisoformat(week_key)
-        week_start_date = week_start_dt.date()
+        try:
+            week_start_dt = datetime.fromisoformat(week_key)
+            week_start_date = week_start_dt.date()
+        except (ValueError, AttributeError):
+            return 0.0
+        
+        # Agrupar todos los pedidos por semana
+        orders_by_week = {}
+        for order in all_orders:
+            if not order.created_at:
+                continue
+            try:
+                order_week_start = get_week_start(order.created_at)
+                if not order_week_start:
+                    continue
+                week_key_order = order_week_start.isoformat() if hasattr(order_week_start, 'isoformat') else str(order_week_start)
+                if not week_key_order:
+                    continue
+                if week_key_order not in orders_by_week:
+                    orders_by_week[week_key_order] = []
+                orders_by_week[week_key_order].append(order)
+            except Exception as e:
+                print(f"⚠️  Error procesando pedido {order.id} para customer_return_rate: {e}")
+                continue
         
         # Obtener todas las semanas ordenadas
-        sorted_weeks = sorted(weeks_data.keys())
-        current_week_index = sorted_weeks.index(week_key) if week_key in sorted_weeks else -1
+        sorted_weeks = sorted(orders_by_week.keys())
+        if week_key not in sorted_weeks:
+            return None  # Retornar None en lugar de 0 para que no se incluya en el promedio
         
-        # Las primeras dos semanas se ignoran (índices 0 y 1)
+        current_week_index = sorted_weeks.index(week_key)
+        
+        # Las primeras dos semanas se ignoran (índices 0 y 1) - retornar None
         if current_week_index < 2:
-            return 0.0
+            return None  # Retornar None para que no se incluya en el promedio
         
-        # Semana actual y anterior
+        # Semana actual
         current_week_start = week_start_date
-        previous_week_start = current_week_start - timedelta(days=7)
         
-        # Semanas de referencia (1 y 2 semanas atrás)
+        # Semanas de referencia: clientes que pidieron hace 1 o 2 semanas (N-1 o N-2)
         week_minus_1_start = current_week_start - timedelta(days=7)
         week_minus_2_start = current_week_start - timedelta(days=14)
+        week_minus_1_key = week_minus_1_start.isoformat()
+        week_minus_2_key = week_minus_2_start.isoformat()
         
-        # Obtener clientes que pidieron hace 1 o 2 semanas
-        reference_weeks = []
-        if week_minus_1_start.isoformat() in weeks_data:
-            reference_weeks.append(week_minus_1_start.isoformat())
-        if week_minus_2_start.isoformat() in weeks_data:
-            reference_weeks.append(week_minus_2_start.isoformat())
+        # Semanas de retorno: esta semana (N) o la anterior (N-1)
+        previous_week_start = current_week_start - timedelta(days=7)
+        previous_week_key = previous_week_start.isoformat()
         
-        if not reference_weeks:
-            return 0.0
-        
-        # Obtener clientes únicos que pidieron en las semanas de referencia
+        # Obtener clientes únicos que pidieron en las semanas de referencia (N-1 o N-2)
         customers_in_reference = set()
-        for ref_week in reference_weeks:
-            for order in weeks_data[ref_week]['orders']:
-                for item in order.items:
-                    customers_in_reference.add(item.customer_id)
+        for ref_week_key in [week_minus_1_key, week_minus_2_key]:
+            if ref_week_key in orders_by_week:
+                for order in orders_by_week[ref_week_key]:
+                    try:
+                        if hasattr(order, 'items') and order.items:
+                            for item in order.items:
+                                if hasattr(item, 'customer_id') and item.customer_id:
+                                    customers_in_reference.add(item.customer_id)
+                    except Exception as e:
+                        print(f"⚠️  Error procesando items del pedido {order.id}: {e}")
+                        continue
         
         if not customers_in_reference:
+            print(f"📊 Semana {week_key}: No hay clientes de referencia (buscó en {week_minus_1_key} y {week_minus_2_key})")
             return 0.0
         
-        # Obtener clientes que pidieron en la semana actual o anterior
-        return_weeks = []
-        if week_key in weeks_data:
-            return_weeks.append(week_key)
-        if previous_week_start.isoformat() in weeks_data:
-            return_weeks.append(previous_week_start.isoformat())
-        
+        # Obtener clientes que pidieron en la semana actual (N) o anterior (N-1)
         customers_returned = set()
-        for ret_week in return_weeks:
-            for order in weeks_data[ret_week]['orders']:
-                for item in order.items:
-                    if item.customer_id in customers_in_reference:
-                        customers_returned.add(item.customer_id)
+        for ret_week_key in [week_key, previous_week_key]:
+            if ret_week_key in orders_by_week:
+                for order in orders_by_week[ret_week_key]:
+                    try:
+                        if hasattr(order, 'items') and order.items:
+                            for item in order.items:
+                                if hasattr(item, 'customer_id') and item.customer_id and item.customer_id in customers_in_reference:
+                                    customers_returned.add(item.customer_id)
+                    except Exception as e:
+                        print(f"⚠️  Error procesando items del pedido {order.id}: {e}")
+                        continue
         
         # Calcular porcentaje
         if len(customers_in_reference) == 0:
             return 0.0
         
-        return (len(customers_returned) / len(customers_in_reference)) * 100
+        percentage = (len(customers_returned) / len(customers_in_reference)) * 100
+        
+        # Debug: imprimir información útil
+        print(f"📊 Semana {week_key}:")
+        print(f"   - Clientes de referencia (pidieron en {week_minus_1_key} o {week_minus_2_key}): {len(customers_in_reference)}")
+        print(f"   - Clientes que retornaron (pidieron en {week_key} o {previous_week_key}): {len(customers_returned)}")
+        print(f"   - Porcentaje: {percentage:.2f}%")
+        
+        return percentage
         
     except Exception as e:
         print(f"⚠️  Error calculando customer_return_rate para semana {week_key}: {e}")
+        import traceback
+        traceback.print_exc()
         return 0.0
 
 
@@ -991,13 +1077,13 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
         # Obtener todas las semanas ordenadas
         sorted_weeks = sorted(orders_by_week.keys())
         if week_key not in sorted_weeks:
-            return 0.0
+            return None  # Retornar None en lugar de 0 para que no se incluya en el promedio
         
         current_week_index = sorted_weeks.index(week_key)
         
-        # Las primeras dos semanas se ignoran (índices 0 y 1)
+        # Las primeras dos semanas se ignoran (índices 0 y 1) - retornar None
         if current_week_index < 2:
-            return 0.0
+            return None  # Retornar None para que no se incluya en el promedio
         
         # Semana actual y anterior
         current_week_start = week_start_date
@@ -1007,9 +1093,22 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
         week_minus_1_start = current_week_start - timedelta(days=7)
         week_minus_2_start = current_week_start - timedelta(days=14)
         
-        # Obtener vendedores únicos que tuvieron pedidos en las semanas de referencia
+        # Semana actual
+        current_week_start = week_start_date
+        
+        # Semanas de referencia: vendedores que tuvieron pedidos hace 1 o 2 semanas (N-1 o N-2)
+        week_minus_1_start = current_week_start - timedelta(days=7)
+        week_minus_2_start = current_week_start - timedelta(days=14)
+        week_minus_1_key = week_minus_1_start.isoformat()
+        week_minus_2_key = week_minus_2_start.isoformat()
+        
+        # Semanas de retorno: esta semana (N) o la anterior (N-1)
+        previous_week_start = current_week_start - timedelta(days=7)
+        previous_week_key = previous_week_start.isoformat()
+        
+        # Obtener vendedores únicos que tuvieron pedidos en las semanas de referencia (N-1 o N-2)
         sellers_in_reference = set()
-        for ref_week_key in [week_minus_1_start.isoformat(), week_minus_2_start.isoformat()]:
+        for ref_week_key in [week_minus_1_key, week_minus_2_key]:
             if ref_week_key in orders_by_week:
                 for order in orders_by_week[ref_week_key]:
                     try:
@@ -1020,11 +1119,12 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
                         continue
         
         if not sellers_in_reference:
+            print(f"📊 Semana {week_key}: No hay vendedores de referencia (buscó en {week_minus_1_key} y {week_minus_2_key})")
             return 0.0
         
-        # Obtener vendedores que tuvieron pedidos en la semana actual o anterior
+        # Obtener vendedores que tuvieron pedidos en la semana actual (N) o anterior (N-1)
         sellers_returned = set()
-        for ret_week_key in [week_key, previous_week_start.isoformat()]:
+        for ret_week_key in [week_key, previous_week_key]:
             if ret_week_key in orders_by_week:
                 for order in orders_by_week[ret_week_key]:
                     try:
@@ -1038,7 +1138,15 @@ def calculate_seller_return_rate_for_week(week_key, all_orders):
         if len(sellers_in_reference) == 0:
             return 0.0
         
-        return (len(sellers_returned) / len(sellers_in_reference)) * 100
+        percentage = (len(sellers_returned) / len(sellers_in_reference)) * 100
+        
+        # Debug: imprimir información útil
+        print(f"📊 Semana {week_key} (vendedores):")
+        print(f"   - Vendedores de referencia (tuvieron pedidos en {week_minus_1_key} o {week_minus_2_key}): {len(sellers_in_reference)}")
+        print(f"   - Vendedores que retornaron (tuvieron pedidos en {week_key} o {previous_week_key}): {len(sellers_returned)}")
+        print(f"   - Porcentaje: {percentage:.2f}%")
+        
+        return percentage
         
     except Exception as e:
         print(f"⚠️  Error calculando seller_return_rate para semana {week_key}: {e}")
