@@ -562,7 +562,7 @@ def get_seller_global_summary(id):
         orders_count = 0
         total_revenue = 0
         total_utility = 0
-        utility_percentages = []
+        commission_percentages = []  # Porcentajes de comisión del vendedor
         
         # Agrupar por cliente
         customers_data = {}  # {customer_id: {'customer': {...}, 'orders': [...], 'total_revenue': 0, 'orders_count': 0}}
@@ -583,10 +583,9 @@ def get_seller_global_summary(id):
                 
                 if seller_cost:
                     total_utility += seller_cost.amount
-                
-                # Calcular porcentaje de utilidad del pedido
-                if order_data['has_cost_data'] and order_data['utility_percent'] is not None:
-                    utility_percentages.append(order_data['utility_percent'])
+                    # Obtener porcentaje de comisión del costo (si existe)
+                    if seller_cost.commission_percent is not None:
+                        commission_percentages.append(seller_cost.commission_percent)
                 
                 # Agrupar por cliente
                 # Primero calcular subtotal por cliente en este pedido
@@ -640,8 +639,8 @@ def get_seller_global_summary(id):
                             })
                             customers_data[customer_id]['orders_count'] += 1
         
-        # Calcular porcentaje de utilidad promedio
-        avg_utility_percent = sum(utility_percentages) / len(utility_percentages) if utility_percentages else 0
+        # Calcular porcentaje de comisión promedio (promedio de porcentajes de comisión de todos los pedidos)
+        avg_utility_percent = sum(commission_percentages) / len(commission_percentages) if commission_percentages else 0
         
         # Convertir customers_data a lista y ordenar por total_revenue
         customers_list = list(customers_data.values())
