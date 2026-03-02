@@ -20,7 +20,11 @@ class Config:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
     
     # Database con path absoluto
-    SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL") or f"sqlite:///{BASE_DIR}/instance/kivi_v2.db"
+    _db_url = os.getenv("DATABASE_URL") or f"sqlite:///{BASE_DIR}/instance/kivi_v2.db"
+    # Render y otros proveedores suelen dar postgres://; SQLAlchemy/psycopg2 requieren postgresql://
+    if _db_url and _db_url.startswith("postgres://"):
+        _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_DATABASE_URI = _db_url
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = False  # Desactivar logs SQL para evitar spam
     
