@@ -112,7 +112,7 @@ def create_app():
     # Ruta de health check
     @app.route("/health")
     def health():
-        return {"status": "ok", "message": "Green Market V2.0 is running! 🌱"}
+        return {"status": "ok", "message": "Kivi is running! 🌱"}
     
     # Servir archivos estáticos de uploads
     from flask import send_from_directory
